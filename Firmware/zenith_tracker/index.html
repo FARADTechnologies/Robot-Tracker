@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zenith Tracker - C2 Lattice</title>
+    <!-- Map Assets -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Realtime Websocket Hook -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.1/socket.io.js"></script>
+    
+    <!-- Tactical StyleSheet -->
+    <link rel="stylesheet" href="style.css">
+    
+    <style>
+        /* Define SVG glowing filter natively in HTML for referencing */
+        .svg-filters { width: 0; height: 0; position: absolute; }
+        
+        /* Map trajectory neon stroke via filter */
+        .neon-path {
+            filter: url(#neonGlow);
+        }
+    </style>
+</head>
+<body>
+    <svg class="svg-filters">
+        <defs>
+            <filter id="neonGlow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                </feMerge>
+            </filter>
+        </defs>
+    </svg>
+
+    <!-- Ambient Visual Depth -->
+    <div id="radar-sweep"></div>
+    
+    <div id="app-container">
+        <!-- HEADER HUD -->
+        <div id="grid-header">
+            <div class="hud-item">
+                <div class="status-dot" id="sys-status-dot"></div>
+                SYSTEM_INTEGRITY: <span id="sys-status" class="data-val">STANDBY</span>
+            </div>
+            <div class="hud-item" style="color: var(--amber);">
+                UPTIME: <span id="uptime">00:00:00</span>
+            </div>
+            <div class="hud-item" style="color: rgba(0, 255, 65, 0.7);">
+                ENCRYPTION: AES-128_ACTIVE
+            </div>
+        </div>
+
+        <!-- MAIN MAP AREA -->
+        <div id="grid-map">
+            <div id="map"></div>
+            <!-- OVERLAID TERMINAL LOG -->
+            <div id="terminal-overlay">
+                <div id="terminal-header">
+                    <span>C2 TERMINAL EVENT LOG</span>
+                    <span style="color: rgba(0,255,65,0.5);">RX/TX SECURE</span>
+                </div>
+                <div id="terminal-body"></div>
+            </div>
+        </div>
+
+        <!-- SIDEBAR TELEMETRY (20%) -->
+        <div id="grid-sidebar">
+            <div class="widget">
+                <div class="widget-header">GNSS TELEMETRY</div>
+                <div class="data-row"><span>LAT:</span> <span id="ui-lat" class="data-val">--.-------</span></div>
+                <div class="data-row"><span>LON:</span> <span id="ui-lon" class="data-val">--.-------</span></div>
+                <div class="data-row"><span>SATS:</span> <span id="ui-sats" class="data-val">0</span></div>
+                <div class="data-row"><span>HDOP:</span> <span id="ui-hdop" class="data-val">--</span></div>
+                <div class="data-row"><span>HDG:</span> <span id="ui-hdg" class="data-val">0.0°</span></div>
+            </div>
+
+            <div class="widget">
+                <div class="widget-header">NETWORK UPLINK</div>
+                <div class="data-row"><span>LINK:</span> <span class="data-val">LTE Cat-4</span></div>
+                <div class="data-row"><span>IP:</span> <span class="data-val">10.0.1.42</span></div>
+                <div class="data-row"><span>RSSI:</span> <span id="ui-rssi" class="data-val">-- dBm</span></div>
+            </div>
+
+            <div class="widget">
+                <div class="widget-header">POWER SYSTEMS</div>
+                <div class="data-row"><span>INT_BATT:</span> <span id="ui-batt-v" class="data-val">4.20V</span></div>
+                <div class="data-row"><span>CHARGE:</span> <span id="ui-batt-pct" class="data-val">100%</span></div>
+                <div class="sparkline-container" id="power-sparkline">
+                    <!-- Sparkline bars dynamically generated inside -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Start Uptime Timer Mechanism
+        let startTime = Date.now();
+        setInterval(() => {
+            let s = Math.floor((Date.now() - startTime) / 1000);
+            let h = Math.floor(s / 3600).toString().padStart(2, '0');
+            let m = Math.floor((s % 3600) / 60).toString().padStart(2, '0');
+            let sec = (s % 60).toString().padStart(2, '0');
+            document.getElementById('uptime').innerText = `${h}:${m}:${sec}`;
+        }, 1000);
+
+        // Core Map Engine Initialization
+        const initLat = 41.0082;
+        const initLng = 28.9784;
+        const map = L.map('map', { 
+            zoomControl: false, 
+            attributionControl: false 
+        }).setView([initLat, initLng], 18);
+
+        // Standardize onto CartoDB Dark Matter per Anduril aesthetics
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 20
+        }).addTo(map);
+
+        // Custom Tactical Chevron SVG built natively via divIcon interpolation
+        const chevronSvg = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#00FF41" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="filter: drop-shadow(0 0 5px #00FF41);">
+            <polygon points="12 2 22 22 12 17 2 22" fill="rgba(0, 255, 65, 0.2)"></polygon>
+        </svg>`;
+
+        const tacticalIcon = L.divIcon({
+            className: 'tactical-marker',
+            html: `<div id="chevron-rotator" style="width:100%; height:100%; transition: transform 0.5s ease-out;">${chevronSvg}</div>`,
+            iconSize: [28, 28],
+            iconAnchor: [14, 14]
+        });
+
+        const assetMarker = L.marker([initLat, initLng], { icon: tacticalIcon }).addTo(map);
+
+        // Dynamic Precision Uncertainty Radius
+        const uncertaintyCircle = L.circle([initLat, initLng], {
+            color: '#00FF41',
+            fillColor: '#00FF41',
+            fillOpacity: 0.1,
+            radius: 10,
+            weight: 1,
+            dashArray: '4'
+        }).addTo(map);
+
+        // Breadcrumb Trail implementation with external CSS neon filter hook
+        const trajectory = L.polyline([], {
+            color: '#00FF41',
+            weight: 3,
+            opacity: 0.8,
+            className: 'neon-path'
+        }).addTo(map);
+        
+        let isFirstFix = true;
+        let lastLatLng = null;
+
+        // Sparkline Graphics Generator
+        const sparklineContainer = document.getElementById('power-sparkline');
+        const updateSparkline = (val) => {
+            const bar = document.createElement('div');
+            bar.className = 'spark-bar';
+            // Simple scale representation
+            bar.style.height = `${Math.max(5, (val / 100) * 30)}px`;
+            sparklineContainer.appendChild(bar);
+            if (sparklineContainer.children.length > 50) {
+                sparklineContainer.removeChild(sparklineContainer.firstChild);
+            }
+        };
+
+        // Terminal Log Scroller Routine
+        const termBody = document.getElementById('terminal-body');
+        const logEvent = (dir, time, text) => {
+            const div = document.createElement('div');
+            div.className = 'log-entry';
+            const colorClass = dir === 'ERR' ? 'data-val red' : (dir === 'IN' ? 'log-dir-out' : 'log-dir-in');
+            div.innerHTML = `<span class="log-ts">[${time}]</span> <span class="${colorClass}">${dir}</span> ${text}`;
+            termBody.appendChild(div);
+            // Autoscroll
+            termBody.scrollTop = termBody.scrollHeight;
+        };
+
+        // Network Layer -> WebSocket Initiation
+        const socket = io();
+
+        socket.on('connect', () => {
+            logEvent("SYS", new Date().toISOString().split('T')[1].slice(0,-1), "C2 DATALINK ESTABLISHED (WS OVER LOCALHOST)");
+        });
+
+        // Massive Payload Update Interceptor
+        socket.on('telemetry_update', (data) => {
+            // Push HUD Metrics
+            const sysStatus = document.getElementById('sys-status');
+            const sysDot = document.getElementById('sys-status-dot');
+            sysStatus.innerText = data.status;
+            
+            if (data.status === 'LIVE') {
+                sysDot.className = 'status-dot';
+                sysStatus.style.color = 'var(--tactical-green)';
+            } else if (data.status === 'LISTENING') {
+                sysDot.className = 'status-dot warn';
+                sysStatus.style.color = 'var(--amber)';
+            } else {
+                sysDot.className = 'status-dot critical';
+                sysStatus.style.color = 'var(--combat-red)';
+            }
+
+            if (data.status === 'LIVE' && data.lat) {
+                // Populate Dense Telemetry Sidebar
+                document.getElementById('ui-lat').innerText = data.lat.toFixed(7);
+                document.getElementById('ui-lon').innerText = data.lng.toFixed(7);
+                document.getElementById('ui-sats').innerText = data.sats;
+                document.getElementById('ui-hdop').innerText = data.hdop.toFixed(2);
+                document.getElementById('ui-hdg').innerText = data.heading.toFixed(1) + '°';
+                document.getElementById('ui-rssi').innerText = data.rssi + ' dBm';
+                document.getElementById('ui-batt-pct').innerText = data.battery.toFixed(0) + '%';
+                
+                const volts = 3.3 + ((data.battery / 100) * 0.9);
+                document.getElementById('ui-batt-v').innerText = volts.toFixed(2) + 'V';
+                
+                updateSparkline(data.battery);
+
+                // Leaflet Coordinate Updates & 60fps Interpolation Hook
+                const newPos = new L.LatLng(data.lat, data.lng);
+                
+                // Triggers native CSS transition across Map
+                assetMarker.setLatLng(newPos);
+                
+                // SVG Rotation based on HDG via transform
+                const rotator = document.getElementById('chevron-rotator');
+                if (rotator) rotator.style.transform = `rotate(${data.heading}deg)`;
+                
+                // HDOP translates 1 point to roughly 3 meters bounds
+                uncertaintyCircle.setLatLng(newPos);
+                uncertaintyCircle.setRadius(data.hdop * 3);
+
+                // Polyline breadcrumb persistence
+                if (!lastLatLng || lastLatLng.lat !== data.lat || lastLatLng.lng !== data.lng) {
+                    trajectory.addLatLng(newPos);
+                    lastLatLng = newPos;
+                }
+
+                // Initial Map Focus Lock
+                if (isFirstFix) {
+                    map.setView(newPos, 18);
+                    isFirstFix = false;
+                }
+            }
+        });
+
+        // Dedicated Log Interceptor
+        socket.on('terminal_log', (log) => {
+            logEvent(log.dir, log.time, log.text);
+        });
+    </script>
+</body>
+</html>

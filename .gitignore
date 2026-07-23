@@ -1,0 +1,35 @@
+# --- secrets / local configuration (never commit) ---
+Firmware/*/config.h
+web/config.js
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.ovpn
+id_rsa*
+
+# --- local scratch, not part of the project ---
+_local/
+
+# --- python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- build output ---
+build/
+dist/
+*.bin
+*.elf
+*.map
+
+# --- editors / OS ---
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store

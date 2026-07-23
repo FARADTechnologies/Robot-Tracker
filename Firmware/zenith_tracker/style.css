@@ -1,0 +1,220 @@
+/* 
+   ZENITH TRACKER: TACTICAL C2 STYLESHEET
+   ANDURIL LATTICE STYLE INFLUENCE
+*/
+
+:root {
+    --bg-dark: #050505;
+    --tactical-green: #00FF41;
+    --amber: #FFB000;
+    --combat-red: #FF3131;
+    --ui-border: rgba(0, 255, 65, 0.4);
+    --glass-bg: rgba(5, 5, 5, 0.7);
+}
+
+body, html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    background-color: var(--bg-dark);
+    font-family: 'JetBrains Mono', 'Roboto Mono', 'Courier New', monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--tactical-green);
+    overflow: hidden;
+}
+
+/* 12-Column Grid Framework */
+#app-container {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    grid-template-rows: 40px calc(100vh - 40px);
+    height: 100vh;
+    position: relative;
+    z-index: 10;
+}
+
+/* Header HUD */
+#grid-header {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    background-color: var(--glass-bg);
+    backdrop-filter: blur(5px);
+    border-bottom: 1px solid var(--ui-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    font-size: 0.85rem;
+    letter-spacing: 1px;
+    z-index: 100;
+}
+
+.hud-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--tactical-green);
+    box-shadow: 0 0 8px var(--tactical-green);
+}
+
+.status-dot.warn { background-color: var(--amber); box-shadow: 0 0 8px var(--amber); }
+.status-dot.critical { background-color: var(--combat-red); box-shadow: 0 0 8px var(--combat-red); }
+
+/* Main Map Area */
+#grid-map {
+    grid-column: 1 / 10; /* Approx 80% */
+    grid-row: 2;
+    position: relative;
+}
+
+#map {
+    width: 100%;
+    height: 100%;
+    background: #000;
+}
+
+/* Custom Tactical Chevron Marker */
+/* We use a transition to interpolate the movement smoothly over 1s (matching hardware rate) */
+.tactical-marker {
+    background: transparent;
+    border: none;
+    transition: transform 1s linear; /* 60fps interpolation for Leaflet's divIcon placement */
+}
+
+/* Telemetry Sidebar */
+#grid-sidebar {
+    grid-column: 10 / -1; /* Approx 20% */
+    grid-row: 2;
+    background: linear-gradient(90deg, rgba(5,5,5,0.95) 0%, rgba(10,10,10,0.8) 100%);
+    border-left: 1px solid var(--ui-border);
+    backdrop-filter: blur(10px);
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    overflow-y: auto;
+    z-index: 100;
+}
+
+/* Glassmorphic Tactical Widgets */
+.widget {
+    background: var(--glass-bg);
+    border: 1px solid var(--ui-border);
+    padding: 12px;
+    /* 45-degree chamfered corners mimicking machined hardware */
+    clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+    box-shadow: inset 0 0 15px rgba(0, 255, 65, 0.05);
+}
+
+.widget-header {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: rgba(0, 255, 65, 0.7);
+    border-bottom: 1px dashed rgba(0, 255, 65, 0.3);
+    padding-bottom: 5px;
+    margin-bottom: 10px;
+}
+
+.data-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    font-size: 0.9rem;
+}
+
+.data-val {
+    font-weight: bold;
+    text-shadow: 0 0 4px rgba(0, 255, 65, 0.4);
+}
+
+.data-val.red { color: var(--combat-red); text-shadow: 0 0 4px var(--combat-red); }
+.data-val.amber { color: var(--amber); text-shadow: 0 0 4px var(--amber); }
+
+/* Sparkline Graph */
+.sparkline-container {
+    height: 30px;
+    width: 100%;
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    margin-top: 10px;
+}
+
+.spark-bar {
+    flex: 1;
+    background-color: var(--tactical-green);
+    min-height: 1px;
+    transition: height 0.3s ease;
+    opacity: 0.7;
+}
+
+/* Terminal Log Overlay */
+#terminal-overlay {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    width: 60%;
+    height: 180px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(0, 255, 65, 0.3);
+    clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+    z-index: 500;
+    display: flex;
+    flex-direction: column;
+}
+
+#terminal-header {
+    background: rgba(0, 255, 65, 0.1);
+    padding: 5px 10px;
+    font-size: 0.75rem;
+    border-bottom: 1px solid rgba(0, 255, 65, 0.2);
+    display: flex;
+    justify-content: space-between;
+}
+
+#terminal-body {
+    flex: 1;
+    padding: 10px;
+    overflow-y: auto;
+    font-size: 0.75rem;
+}
+
+.log-entry { margin-bottom: 4px; line-height: 1.3; }
+.log-ts { color: rgba(0, 255, 65, 0.6); margin-right: 8px; }
+.log-dir-out { color: var(--tactical-green); }
+.log-dir-in { color: var(--amber); }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: rgba(0,0,0,0.5); }
+::-webkit-scrollbar-thumb { background: rgba(0,255,65,0.4); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--tactical-green); }
+
+/* Radar Sweep Background Animation overlay */
+#radar-sweep {
+    position: fixed;
+    top: 50%;
+    left: 40%; /* centered on map */
+    width: 150vw;
+    height: 150vw;
+    transform: translate(-50%, -50%);
+    background: conic-gradient(from 0deg, transparent 70%, rgba(0, 255, 65, 0.1) 100%);
+    border-radius: 50%;
+    animation: sweep 8s linear infinite;
+    pointer-events: none;
+    z-index: 1; /* Below map UI, handled by Leaflet overlay if possible, or just sits on top without pointer events */
+    mix-blend-mode: screen;
+}
+
+@keyframes sweep {
+    0% { transform: translate(-50%, -50%) rotate(0deg); }
+    100% { transform: translate(-50%, -50%) rotate(360deg); }
+}

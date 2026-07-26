@@ -4,9 +4,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ZENITH · GNSS Komuta Merkezi</title>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"
+  integrity="sha384-u4uqeACkFcoKl57rBQJHVGDd1pqhW4w8X3WjTu1ZksPdxoLqdt34jpoNkJisE25W" crossorigin="anonymous"></script>
 <!-- Optional local settings (untracked). Harmless 404 if you have not created it. -->
 <script src="config.js"></script>
 <style>
@@ -88,8 +91,13 @@ const colHex=v=>{const d=S.theme==='dark';return !v.online?'#5c6b7a':v.warn?(d?'
 const stc=v=>!v.online?'var(--off)':v.warn?'var(--warn)':v.mov?'var(--acc)':'var(--ok)';
 
 /* ================= crypto / MQTT ================= */
-async function importKey(id,hex){KEYS[id]=await crypto.subtle.importKey('raw',hexBytes(hex),{name:'AES-GCM'},false,['decrypt']);}
+async function importKey(id,hex){KEYS[id]=await crypto.subtle.importKey('raw',hexBytes(hex),{name:'AES-GCM'},false,['encrypt','decrypt']);}
 async function decryptFor(id,b64){const blob=b64Bytes(b64);const iv=blob.slice(0,12),data=blob.slice(12);const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv},KEYS[id],data);return new TextDecoder().decode(pt);}
+async function encryptFor(id,obj){const iv=crypto.getRandomValues(new Uint8Array(12));const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},KEYS[id],new TextEncoder().encode(JSON.stringify(obj))));const blob=new Uint8Array(iv.length+ct.length);blob.set(iv);blob.set(ct,iv.length);let s='';for(const b of blob)s+=String.fromCharCode(b);return btoa(s);}
+/* Monotonic command sequence (survives reloads via wall-clock seed) so the
+   device can reject replayed commands. */
+let cmdSeq=Date.now();
+function nextCmdSeq(){cmdSeq=Math.max(Date.now(),cmdSeq+1);return cmdSeq;}
 function setMqtt(st){S.mqtt=st;const b=$('mqttBadge');if(!b)return;const on=st==='on';b.style.color=on?'var(--ok)':st==='conn'?'var(--warn)':'var(--err)';b.style.borderColor=b.style.color;b.querySelector('span').style.background=b.style.color;b.querySelector('b').textContent=on?'MQTT':st==='conn'?'MQTT…':'MQTT ✕';}
 function connectMqtt(){
   setMqtt('conn');
@@ -101,10 +109,18 @@ function connectMqtt(){
   client.on('message',async(topic,payload)=>{
     const d=DEVICES.find(x=>x.topic===topic);if(!d)return;const v=V(d.id);v.lastRaw=payload.toString();
     if(!KEYS[d.id])return;                       // locked → cannot decrypt
-    try{onTelemetry(v,JSON.parse(await decryptFor(d.id,v.lastRaw)));}catch(e){}
+    try{
+      const j=JSON.parse(await decryptFor(d.id,v.lastRaw));
+      if(j.seq!=null){ if(v.lastSeq!=null && j.seq<=v.lastSeq) return; v.lastSeq=j.seq; }  // drop replays / out-of-order
+      onTelemetry(v,j);
+    }catch(e){}
   });
 }
-function publishCmd(devId,obj){const d=DEV(devId);if(client&&d)client.publish(d.cmd,JSON.stringify(obj));}
+async function publishCmd(devId,obj){
+  const d=DEV(devId);if(!client||!d)return;
+  if(!KEYS[devId]){toast(S.lang==='tr'?'Anahtar yok — komut gönderilemez':'No key — cannot send command');return;}
+  client.publish(d.cmd, await encryptFor(devId,{...obj,seq:nextCmdSeq()}));
+}
 
 /* ================= telemetry ingest ================= */
 function onTelemetry(v,j){

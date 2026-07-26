@@ -133,18 +133,27 @@ or with `tools/send_command.py`:
 | `{"verbose":1}` | echo raw AT traffic to USB |
 | `{"cmd":"report"}` | report position immediately |
 
-The device echoes its live settings back in the telemetry payload, so a command
-is confirmed by the next message.
+Commands are themselves AES-256-GCM encrypted and carry a strictly increasing
+`seq`, so the device rejects any command that is forged or replayed. The device
+echoes its live settings back in the telemetry payload, so a command is confirmed
+by the next message.
 
 ## Security model
 
-- Positions are encrypted on the device; the broker only relays ciphertext.
-- Each device gets its own AES-256 key, so one leaked key cannot expose the rest.
-- Keys are never committed. `config.h` and `web/config.js` are untracked, and the
-  dashboard keeps a key in tab memory only — never in localStorage, never
-  displayed back in plaintext.
-- For the strongest setup, keep keys offline (on paper) and type them into the
-  vault per session.
+- **Confidentiality + authenticity both directions.** Positions (uplink) and
+  commands (downlink) are AES-256-GCM. The broker only ever relays ciphertext, and
+  the GCM tag means neither side accepts a forged or tampered message.
+- **Replay protection.** Every frame carries a monotonic `seq`. The device rejects
+  commands whose seq does not increase (counter persisted in NVS, so it survives
+  reboots), and the dashboard drops stale or out-of-order positions.
+- **Per-device keys.** Each device gets its own AES-256 key, so one leaked key
+  cannot expose the rest.
+- **Keys never committed.** `config.h` and `web/config.js` are untracked. The
+  dashboard holds a key in tab memory only — never in localStorage, never shown
+  back in plaintext. For the strongest setup keep keys offline (on paper) and type
+  them into the vault per session.
+- **Subresource Integrity.** The dashboard's CDN dependencies are pinned with
+  SRI hashes, so a compromised CDN cannot inject code into a page that handles keys.
 
 ## Accuracy notes
 
@@ -160,7 +169,7 @@ the sky. An active antenna with a built-in LNA is the next step up.
 ## Roadmap
 
 - IMU dead reckoning for tunnels and urban canyons
-- Server-side map matching and persistent history
+- Server-side map matching and persistent history (Supabase, then a dedicated backend)
 - Authenticated broker with TLS, multi-device management
 - Keys burned into the ESP32-S3 eFuse so firmware cannot read them back
 - Geofencing and alerts, battery and ignition telemetry

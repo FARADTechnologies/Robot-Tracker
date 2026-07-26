@@ -21,6 +21,7 @@
  */
 
 #include <math.h>
+#include <Preferences.h>
 #include "esp_system.h"
 #include "mbedtls/gcm.h"
 #include "mbedtls/base64.h"
@@ -68,6 +69,14 @@ double kfLat = 0, kfLon = 0, kfP = 100;   // filter state + covariance
 float HDOP_MAX   = 3.0;     // reject above this
 float JUMP_MAX_MPS = 60.0;  // 216 km/h — anything faster is noise
 uint32_t rejCount = 0, lastFixMs = 0;
+
+/* Replay protection. Both directions carry a strictly increasing sequence number.
+   Counters survive reboots via NVS, so an attacker cannot replay an old frame
+   after power-cycling the device. Uplink counters are reserved in blocks to keep
+   flash wear low at 1 Hz reporting. */
+Preferences prefs;
+uint32_t upSeq = 0, upSeqPersisted = 0, lastCmdSeq = 0, cmdRejected = 0;
+#define SEQ_BLOCK 100
 uint32_t gnssMs = 1000;     // GNSS fix rate (ms). Commercial trackers run 1-10 Hz; we were at 0.33 Hz.
 
 bool   haveFix = false;
@@ -143,6 +152,28 @@ String base64Of(const uint8_t *data, size_t len) {
   uint8_t *buf = (uint8_t*)malloc(need + 1); if (!buf) return String();
   size_t wrote = 0; mbedtls_base64_encode(buf, need + 1, &wrote, data, len); buf[wrote] = 0;
   String s = String((char*)buf); free(buf); return s;
+}
+
+// Decrypt a base64( IV(12) || ciphertext || tag(16) ) blob. Returns "" if the
+// GCM tag does not verify — i.e. wrong key or tampered/forged command.
+String decryptPayload(const String &b64) {
+  size_t inLen = b64.length();
+  uint8_t *raw = (uint8_t*)malloc(inLen); if (!raw) return String();
+  size_t rawLen = 0;
+  if (mbedtls_base64_decode(raw, inLen, &rawLen, (const uint8_t*)b64.c_str(), inLen) != 0 ||
+      rawLen < 12 + 16 + 1) { free(raw); return String(); }
+  const size_t ivLen = 12, tagLen = 16, ptLen = rawLen - ivLen - tagLen;
+  uint8_t *iv = raw, *ct = raw + ivLen, *tag = raw + ivLen + ptLen;
+  uint8_t *pt = (uint8_t*)malloc(ptLen + 1); if (!pt) { free(raw); return String(); }
+  mbedtls_gcm_context gcm; mbedtls_gcm_init(&gcm);
+  int rc = -1;
+  if (mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, AES_KEY, 256) == 0)
+    rc = mbedtls_gcm_auth_decrypt(&gcm, ptLen, iv, ivLen, nullptr, 0, tag, tagLen, ct, pt);
+  mbedtls_gcm_free(&gcm);
+  String out;
+  if (rc == 0) { pt[ptLen] = 0; out = String((char*)pt); }
+  free(raw); free(pt);
+  return out;                                   // empty on auth failure
 }
 
 // ---------------- geo ----------------
@@ -314,8 +345,17 @@ void flushQueue() {
   }
 }
 
+// Monotonic uplink sequence, persisted in blocks so it survives reboots without
+// wearing flash at 1 Hz. The viewer rejects any frame whose seq is not increasing.
+uint32_t nextUpSeq() {
+  upSeq++;
+  if (upSeq > upSeqPersisted) { upSeqPersisted = upSeq + SEQ_BLOCK; prefs.putUInt("upseq", upSeqPersisted); }
+  return upSeq;
+}
+
 String buildJson() {
-  return String("{\"id\":\"") + DEVICE_ID + "\",\"lat\":" + String(fixLat, 6) +
+  return String("{\"id\":\"") + DEVICE_ID + "\",\"seq\":" + String(nextUpSeq()) +
+         ",\"lat\":" + String(fixLat, 6) +
          ",\"lon\":" + String(fixLon, 6) +
          ",\"alt\":" + (fixAlt.length() ? fixAlt : "0") +
          ",\"spd\":" + (fixSpd.length() ? fixSpd : "0") +
@@ -353,6 +393,13 @@ static float jflt(const String &p, const char *key, float def) {
   return p.substring(c + 1).toFloat();
 }
 void handleCommand(const String &p) {
+  // Replay guard: commands must carry a strictly increasing seq.
+  long seq = jnum(p, "\"seq\"", -1);
+  if (seq < 0) { cmdRejected++; Serial.println("[CMD] rejected: no seq"); return; }
+  if ((uint32_t)seq <= lastCmdSeq) {
+    cmdRejected++; Serial.printf("[CMD] REPLAY rejected: seq %ld <= %lu\r\n", seq, (unsigned long)lastCmdSeq); return; }
+  lastCmdSeq = (uint32_t)seq; prefs.putUInt("cmdseq", lastCmdSeq);
+
   Serial.print("\r\n[CMD] "); Serial.println(p);
   long n = jnum(p, "\"interval\"", -1);
   if (n >= 1 && n <= 3600) { movMs = parkMs = (uint32_t)n * 1000UL; Serial.printf("[CMD] interval -> %ld s\r\n", n); }
@@ -377,7 +424,12 @@ void checkDownlink() {
   int pe = rxAccum.indexOf("+CMQTTRXEND");
   if (ps >= 0 && pe > ps) {
     int nl = rxAccum.indexOf('\n', ps);
-    if (nl >= 0 && nl < pe) { String pl = rxAccum.substring(nl + 1, pe); pl.trim(); handleCommand(pl); }
+    if (nl >= 0 && nl < pe) {
+      String enc = rxAccum.substring(nl + 1, pe); enc.trim();
+      String pl = decryptPayload(enc);            // GCM verifies authenticity
+      if (pl.length() == 0) { cmdRejected++; Serial.println("[CMD] rejected: decrypt/auth failed"); }
+      else handleCommand(pl);
+    }
     rxAccum = rxAccum.substring(pe + 11);
   }
   if (rxAccum.length() > 600) rxAccum = rxAccum.substring(rxAccum.length() - 600);
@@ -390,6 +442,13 @@ void setup() {
   Serial.println("\r\n#### GPS Tracker (Phase 3: adaptive + store-and-forward) ####");
   Modem.begin(MODEM_BAUD, SERIAL_8N1, MODEM_RX_PIN, MODEM_TX_PIN);
   delay(200);
+
+  prefs.begin("trk", false);                       // replay counters (survive reboot)
+  lastCmdSeq     = prefs.getUInt("cmdseq", 0);
+  upSeqPersisted = prefs.getUInt("upseq", 0);
+  upSeq          = upSeqPersisted;                 // resume above the last reserved block
+  Serial.printf("[seq] uplink>=%lu  lastCmd=%lu\r\n", (unsigned long)upSeq, (unsigned long)lastCmdSeq);
+
   if (!lteUp()) Serial.println("!! LTE bringup problem");
 
   sendAT("AT+CGNSSMODE?", nullptr, 3000);          // log which constellations are active

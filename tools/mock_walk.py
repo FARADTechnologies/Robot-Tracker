@@ -50,6 +50,7 @@ for i in range(STEPS):
         moving = 0
     msg = {
         "id": DEVICE_ID,
+        "seq": i + 1,
         "lat": round(LAT0 + RADIUS * math.sin(angle), 6),
         "lon": round(LON0 + RADIUS * math.cos(angle) * 0.76, 6),
         "alt": round(60 + 8 * math.sin(angle), 1),

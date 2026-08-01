@@ -65,6 +65,12 @@ bool  F_JUMPREJ  = true;    // reject physically impossible jumps
 bool  F_LBS      = false;   // cell-tower fallback (off until verified on Azercell)
 bool  F_KALMAN   = false;   // 1-D Kalman per axis, HDOP-adaptive (test outdoors before enabling)
 bool  F_VERBOSE  = false;   // echo raw AT traffic to USB. OFF keeps the console readable at 1 Hz.
+/* An active GNSS antenna is powered by DC on the coax (the module's VDD_AUX pin).
+   The voltage also sets the antenna's LNA gain, so it is the knob that matches the
+   antenna to the module's recommended input level (< 18 dB total, after cable loss).
+   Turn the bias OFF for a passive antenna — SIMCom explicitly recommends that. */
+bool  F_ANTBIAS  = true;
+int   ANT_MV     = 3000;    // allowed: 1200,1250,1700,1800,1850,1900,2500..3300
 double kfLat = 0, kfLon = 0, kfP = 100;   // filter state + covariance
 float HDOP_MAX   = 3.0;     // reject above this
 float JUMP_MAX_MPS = 60.0;  // 216 km/h — anything faster is noise
@@ -381,6 +387,21 @@ void reportPosition() {
 }
 
 // ---------------- setup / loop ----------------
+// Apply the antenna bias setting. Voltage trades LNA gain against front-end
+// overload: a 28 dB antenna on a 3 m coax already exceeds what the module wants,
+// so dropping to 1800 mV is often the better match.
+void applyAntennaBias() {
+  if (!F_ANTBIAS) {
+    sendAT("AT+CVAUXS=0", "OK", 3000);
+    Serial.println("[ant] bias OFF (passive antenna)");
+    return;
+  }
+  String v = String("AT+CVAUXV=") + ANT_MV;
+  sendAT(v.c_str(), "OK", 3000);
+  sendAT("AT+CVAUXS=1", "OK", 3000);
+  Serial.printf("[ant] bias ON @ %d mV\r\n", ANT_MV);
+}
+
 // ---------------- downlink (remote commands over MQTT) ----------------
 static long jnum(const String &p, const char *key, long def) {
   int i = p.indexOf(key); if (i < 0) return def;
@@ -410,13 +431,16 @@ void handleCommand(const String &p) {
   if (p.indexOf("\"lbs\"")      >= 0) F_LBS      = jnum(p, "\"lbs\"", 0);
   if (p.indexOf("\"kalman\"")   >= 0) { F_KALMAN = jnum(p, "\"kalman\"", 0); kfP = 100; }
   if (p.indexOf("\"verbose\"")  >= 0) F_VERBOSE  = jnum(p, "\"verbose\"", 0);
+  if (p.indexOf("\"antbias\"")  >= 0) { F_ANTBIAS = jnum(p, "\"antbias\"", 1); applyAntennaBias(); }
+  if (p.indexOf("\"antmv\"")    >= 0) { ANT_MV = jnum(p, "\"antmv\"", 3000); applyAntennaBias(); }
   if (p.indexOf("\"hdopmax\"")  >= 0) HDOP_MAX   = jflt(p, "\"hdopmax\"", 3.0);
   { long g = jnum(p, "\"gnssms\"", -1); if (g >= 200 && g <= 10000) gnssMs = (uint32_t)g; }
   if (p.indexOf("agpsnow") >= 0) sendAT("AT+CAGPS", "OK", 25000);
   if (p.indexOf("\"lbs\"") >= 0 || p.indexOf("lbsnow") >= 0) sendAT("AT+CLBS=1", "+CLBS", 25000);
   if (p.indexOf("report")  >= 0) lastReport = 0;             // force an immediate report
-  Serial.printf("[CFG] agps=%d hdopgate=%d(max %.1f) statlock=%d jumprej=%d lbs=%d int=%lus rej=%lu\r\n",
-                F_AGPS, F_HDOPGATE, HDOP_MAX, F_STATLOCK, F_JUMPREJ, F_LBS, (unsigned long)(parkMs/1000), (unsigned long)rejCount);
+  Serial.printf("[CFG] agps=%d hdopgate=%d(max %.1f) statlock=%d jumprej=%d lbs=%d ant=%d@%dmV int=%lus rej=%lu\r\n",
+                F_AGPS, F_HDOPGATE, HDOP_MAX, F_STATLOCK, F_JUMPREJ, F_LBS, F_ANTBIAS, ANT_MV,
+                (unsigned long)(parkMs/1000), (unsigned long)rejCount);
 }
 void checkDownlink() {
   while (Modem.available()) { char c = (char)Modem.read(); rxAccum += c; if (F_VERBOSE) Serial.write(c); }
@@ -452,6 +476,7 @@ void setup() {
   if (!lteUp()) Serial.println("!! LTE bringup problem");
 
   sendAT("AT+CGNSSMODE?", nullptr, 3000);          // log which constellations are active
+  applyAntennaBias();                              // power the antenna before it has to acquire
   if (F_AGPS) sendAT("AT+CAGPS", "OK", 25000);     // assisted GNSS: ephemeris over LTE (~tens of KB)
   gnssOn();
   mqttConnect();

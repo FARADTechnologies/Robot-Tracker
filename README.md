@@ -130,6 +130,8 @@ or with `tools/send_command.py`:
 | `{"jumprej":0}` | disable jump rejection |
 | `{"kalman":1}` | enable the Kalman filter |
 | `{"agps":1}` | enable assisted GNSS |
+| `{"antbias":0}` | stop feeding DC to the antenna (passive antenna) |
+| `{"antmv":1800}` | antenna bias voltage in mV — also sets its LNA gain |
 | `{"verbose":1}` | echo raw AT traffic to USB |
 | `{"cmd":"report"}` | report position immediately |
 

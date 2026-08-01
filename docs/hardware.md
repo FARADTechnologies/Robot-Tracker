@@ -54,6 +54,34 @@ resistance between the coax centre and shield: a passive patch reads a short or
 an open and is symmetric, while an active one reads a few hundred ohms to a few
 kΩ and changes when the probes are reversed.
 
+### Powering an active antenna
+
+The module feeds DC to the antenna over the coax from its `VDD_AUX` pin, and an
+active antenna is the module's default assumption. Two AT commands control it:
+
+| Command | Effect |
+| --- | --- |
+| `AT+CVAUXS=1` / `=0` | enable or disable the bias |
+| `AT+CVAUXV=<mV>` | bias voltage: 1200, 1250, 1700, 1800, 1850, 1900, 2500–3300 |
+
+Turn the bias **off** for a passive antenna. The firmware exposes both as
+`{"antbias":0|1}` and `{"antmv":1800}`.
+
+The voltage matters for more than power: on most active antennas it also sets the
+LNA gain. The module wants **under 18 dB total gain** at its port (its reference
+figure is a 20 dB LNA), so a high-gain antenna on a long coax can overshoot and
+compress the front end. Subtract the cable loss (RG174 is roughly 1 dB/m at
+1.5 GHz) from the antenna's LNA gain, and drop the bias voltage if the result is
+still well above 18 dB.
+
+### Antenna passband and constellations
+
+Check the antenna's passband against the constellations you want. The module
+receives GPS/Galileo at 1575.42 MHz, GLONASS at 1597.5–1605.8 MHz, and BeiDou B1I
+at 1561.098 MHz. A GPS/GLONASS antenna specified from 1574 MHz upwards covers the
+first two but filters BeiDou out — so switching antennas can change which
+constellations appear in `AT+CGNSSINFO`, not just the signal quality.
+
 ## Status LED (NETLIGHT)
 
 | Pattern | Meaning |

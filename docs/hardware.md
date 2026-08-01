@@ -74,6 +74,21 @@ compress the front end. Subtract the cable loss (RG174 is roughly 1 dB/m at
 1.5 GHz) from the antenna's LNA gain, and drop the bias voltage if the result is
 still well above 18 dB.
 
+### Fitting an antenna with the wrong connector
+
+Antennas often ship with SMA while the module board uses u.FL (IPEX MHF-I). Chain
+them as **coax → SMA male → SMA female-to-u.FL pigtail → board**. A u.FL connector
+cannot go directly onto RG174: u.FL is made for 1.13 mm micro-coax, RG174 is 2.8 mm.
+
+Never improvise a splice at 1.5 GHz. A twisted joint wrecks the 50 Ω impedance and
+throws away more than the antenna gains. Fit a proper connector, then check for a
+short between centre and shield before plugging it into the module — a shorted
+antenna shorts the module's bias supply.
+
+Cable length is a design knob, not just a nuisance: RG174 costs roughly 1 dB/m at
+1.5 GHz, which usefully offsets a high-gain active antenna. Around 1 m of cable
+with the bias at 1800 mV lands close to the module's recommended input level.
+
 ### Antenna passband and constellations
 
 Check the antenna's passband against the constellations you want. The module

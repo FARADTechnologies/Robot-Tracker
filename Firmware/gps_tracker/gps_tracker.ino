@@ -108,6 +108,11 @@ uint32_t upSeq = 0, upSeqPersisted = 0, cmdRejected = 0;
 // Command sequence numbers are wall-clock milliseconds, which overflow 32 bits.
 uint64_t lastCmdSeq = 0;
 #define SEQ_BLOCK 100
+/* A restart looks exactly like a coverage gap from the outside, so count them
+   and send the number along. A jump in this value explains a hole in the track
+   that would otherwise be blamed on the sky. */
+uint32_t bootCount = 0;
+uint32_t lastBeat = 0;      // heartbeat while there is no fix
 uint32_t gnssMs = 1000;     // GNSS fix rate (ms). Commercial trackers run 1-10 Hz; we were at 0.33 Hz.
 
 bool   haveFix = false;
@@ -457,12 +462,24 @@ String buildJson() {
          ",\"sat\":" + fixSats + ",\"mov\":" + (moving ? "1" : "0") + ",\"rej\":" + String(rejCount) +
          ",\"iv\":" + String(parkMs / 1000) +          // echoes live config back = downlink confirmation
          ",\"kf\":" + String(F_KALMAN ? 1 : 0) +
-         ",\"vbat\":" + String(vbat, 2) +
+         ",\"vbat\":" + String(vbat, 2) + ",\"boot\":" + String(bootCount) + ",\"fix\":1" +
          ",\"utc\":\"" + fixUtc + "\",\"date\":\"" + fixDate + "\"}";
 }
 
 void reportPosition() {
-  if (!haveFix) { static uint32_t lastMsg=0; if (millis()-lastMsg>15000){lastMsg=millis();Serial.println("   [report] no fix yet, waiting...");} return; }
+  // No fix is not the same as no device. Send a heartbeat so a searching tracker
+  // stays distinguishable from a dead one, and so a hole in the track can be
+  // explained rather than guessed at.
+  if (!haveFix) {
+    if (millis() - lastBeat < 30000) return;
+    lastBeat = millis();
+    Serial.println("   [report] no fix — heartbeat");
+    if (!mqttUp && !mqttConnect()) return;
+    publishJson(String("{\"id\":\"") + DEVICE_ID + "\",\"seq\":" + nextUpSeq() +
+                ",\"fix\":0,\"boot\":" + bootCount + ",\"rej\":" + rejCount +
+                ",\"vbat\":" + String(vbat, 2) + "}");
+    return;
+  }
   lastReport = millis();
   String json = buildJson();
   Serial.print("\r\n---- REPORT ----\r\nplain: "); Serial.println(json);
@@ -667,16 +684,25 @@ void setup() {
   lastCmdSeq     = prefs.getULong64("cmdseq", 0);
   upSeqPersisted = prefs.getUInt("upseq", 0);
   upSeq          = upSeqPersisted;                 // resume above the last reserved block
-  Serial.printf("[seq] uplink>=%lu  lastCmd=%llu\r\n", (unsigned long)upSeq, (unsigned long long)lastCmdSeq);
+  bootCount = prefs.getUInt("boot", 0) + 1; prefs.putUInt("boot", bootCount);
+  Serial.printf("[boot] #%lu  reset=%d  seq>=%lu  lastCmd=%llu\r\n",
+                (unsigned long)bootCount, (int)esp_reset_reason(),
+                (unsigned long)upSeq, (unsigned long long)lastCmdSeq);
+  if (esp_reset_reason() == ESP_RST_BROWNOUT) say("[boot] BROWNOUT — the 5 V rail collapsed");
 
   wifiOtaBegin();                                  // OTA first, so a bad build is still recoverable
-  if (!lteUp()) say("!! LTE bringup problem");
-  mqttConnect();                                   // command channel before the slow GNSS steps,
-                                                   // so the device is reachable as early as possible
-  sendAT("AT+CGNSSMODE?", nullptr, 3000);          // log which constellations are active
-  applyAntennaBias();                              // power the antenna before it has to acquire
-  if (F_AGPS) sendAT("AT+CAGPS", "OK", 25000);     // assisted GNSS: ephemeris over LTE (~tens of KB)
+
+  // Order matters after a restart. Satellites take the longest to come back, so
+  // start the receiver before anything else and let it acquire while the network
+  // is still being set up. Assistance data is fetched afterwards, once there is
+  // a link to fetch it over.
+  applyAntennaBias();
   gnssOn();
+  if (!lteUp()) say("!! LTE bringup problem");
+  readVbat();                                      // so the first report carries a real voltage
+  mqttConnect();
+  sendAT("AT+CGNSSMODE?", nullptr, 3000);
+  if (F_AGPS) sendAT("AT+CAGPS", "OK", 25000);
   Serial.println("Ready. Adaptive reporting: 20s moving / 5min parked, +transitions. Offline -> buffered.\r\n");
 }
 

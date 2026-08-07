@@ -65,7 +65,7 @@ const fleet=DEVICES.map(d=>({id:d.id,name:d.name,online:false,warn:false,mov:fal
 const DEV=id=>DEVICES.find(d=>d.id===id);
 const V=id=>fleet.find(v=>v.id===id);
 const KEYS={};                         // deviceId -> CryptoKey (in-memory only)
-let map,client,mk={},trail,acc,ghost,stopMks=[],tileL,dragging=false;
+let map,client,mk={},trail,gaps,acc,ghost,stopMks=[],tileL,dragging=false;
 
 /* ================= i18n ================= */
 function dict(){const tr=S.lang==='tr';return tr?
@@ -163,13 +163,27 @@ function syncMap(){
   for(const v of fleet){if(!v.cur)continue;const dim=S.focusId&&v.id!==S.focusId;
     if(!mk[v.id]){mk[v.id]=L.marker([v.cur.lat,v.cur.lon],{icon:icon(v,dim)}).addTo(map).on('click',()=>{select(v.id);}).bindTooltip(v.name,{direction:'top',offset:[0,-14]});}
     else{mk[v.id].setLatLng([v.cur.lat,v.cur.lon]).setIcon(icon(v,dim));}}
-  [trail,acc,ghost,...stopMks].forEach(x=>x&&map.removeLayer(x));stopMks=[];trail=acc=ghost=null;
+  [trail,gaps,acc,ghost,...stopMks].forEach(x=>x&&map.removeLayer(x));stopMks=[];trail=gaps=acc=ghost=null;
   if(sel&&sel.cur){const accent=colHex({online:true,warn:false,mov:true});const full=S.focusId===sel.id||hist;
     // live trail is time-windowed (same range picker) so its start stays anchored,
     // instead of a fixed 40-point window that visibly slides forward at 1 Hz.
     let src=rangePts(sel); if(src.length>3000)src=src.slice(-3000);
-    const pts=src.map(p=>[p.lat,p.lon]);
-    if(pts.length>1)trail=L.polyline(pts,{color:accent,weight:full?3:2.5,opacity:full?.9:.6,dashArray:full?null:'6 6'}).addTo(map);
+    // Break the line wherever reporting stopped. Joining across a gap draws a
+    // road that was never travelled — the straight shortcut is a drawing
+    // artefact, not a measurement. Gaps get their own dashed grey line so the
+    // absence is visible instead of disguised.
+    const GAP_MS=15000, segs=[], gapSegs=[]; let cur=[];
+    for(let i=0;i<src.length;i++){
+      if(i>0 && src[i].t-src[i-1].t>GAP_MS){
+        if(cur.length>1)segs.push(cur);
+        gapSegs.push([[src[i-1].lat,src[i-1].lon],[src[i].lat,src[i].lon]]);
+        cur=[];
+      }
+      cur.push([src[i].lat,src[i].lon]);
+    }
+    if(cur.length>1)segs.push(cur);
+    if(gapSegs.length)gaps=L.polyline(gapSegs,{color:'#8a97a5',weight:1.5,opacity:.55,dashArray:'3 7'}).addTo(map);
+    if(segs.length)trail=L.polyline(segs,{color:accent,weight:full?3:2.5,opacity:full?.9:.6,dashArray:full?null:'6 6'}).addTo(map);
     if(S.mode==='live')acc=L.circle([sel.cur.lat,sel.cur.lon],{radius:sel.cur.hdop*5,color:accent,weight:1,dashArray:'4 4',fillColor:accent,fillOpacity:.07}).addTo(map);
     if(full)for(const w of sel.stops){const m=L.circleMarker([w.lat,w.lon],{radius:7,color:'#fff',weight:2,fillColor:'#e25555',fillOpacity:1}).addTo(map);m.bindTooltip(fmtT(w.t)+' · '+durTxt(w.dur/60000),{direction:'top'});stopMks.push(m);}
     if(hist){const p=histPt(sel);if(p){ghost=L.marker([p.lat,p.lon],{icon:L.divIcon({className:'',iconSize:[18,18],iconAnchor:[9,9],html:'<div style="width:13px;height:13px;border-radius:50%;background:#8a97a5;border:2px solid #fff;box-shadow:0 0 0 2px #8a97a5"></div>'})}).addTo(map);if(S.playing||dragging)map.panTo([p.lat,p.lon],{animate:false});}}

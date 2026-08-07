@@ -132,6 +132,11 @@ void say(const String &s) {
   if (logBuf.length() > 1400) logBuf.remove(0, logBuf.length() - 1400);
 }
 
+// Modem commands block for seconds at a time. Servicing OTA inside those waits
+// keeps the board answerable to a firmware upload at any moment, instead of only
+// in the gaps between commands.
+inline void otaPump() { if (otaReady) ArduinoOTA.handle(); }
+
 // ---------------- AT helpers ----------------
 bool waitFor(const char *token, uint32_t timeoutMs, String &out) {
   uint32_t start = millis(); out = "";
@@ -140,6 +145,7 @@ bool waitFor(const char *token, uint32_t timeoutMs, String &out) {
       char c = (char)Modem.read(); out += c; if (F_VERBOSE) Serial.write(c);
       if (out.indexOf(token) >= 0) return true;
     }
+    otaPump();
     delay(3);
   }
   return false;
@@ -157,6 +163,7 @@ bool sendAT(const char *cmd, const char *expect, uint32_t timeoutMs) {
       if (!matched && out.indexOf(expect) >= 0) matched = true;
     }
     if ((out.indexOf("OK\r\n") >= 0 || out.indexOf("ERROR") >= 0) && matched) break;
+    otaPump();
     delay(3);
   }
   return matched;
@@ -171,6 +178,7 @@ String atReply(const char *cmd, uint32_t timeoutMs) {
   while (millis() - start < timeoutMs) {
     while (Modem.available()) { char c = (char)Modem.read(); out += c; if (F_VERBOSE) Serial.write(c); }
     if (out.indexOf("OK\r\n") >= 0 || out.indexOf("ERROR") >= 0) break;
+    otaPump();
     delay(3);
   }
   return out;
@@ -474,7 +482,10 @@ void wifiOtaBegin() {
   otaReady = false;
   if (!F_WIFI) { WiFi.mode(WIFI_OFF); return; }
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
+  // Keep the radio's power saving on. Holding it awake costs enough current to
+  // drag the shared 5 V rail down, which the modem feels first; the board still
+  // answers OTA between beacons.
+  WiFi.setSleep(true);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   uint32_t t0 = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - t0 < 6000) delay(200);
@@ -638,7 +649,7 @@ void setup() {
   lastCmdSeq     = prefs.getULong64("cmdseq", 0);
   upSeqPersisted = prefs.getUInt("upseq", 0);
   upSeq          = upSeqPersisted;                 // resume above the last reserved block
-  Serial.printf("[seq] uplink>=%lu  lastCmd=%lu\r\n", (unsigned long)upSeq, (unsigned long)lastCmdSeq);
+  Serial.printf("[seq] uplink>=%lu  lastCmd=%llu\r\n", (unsigned long)upSeq, (unsigned long long)lastCmdSeq);
 
   wifiOtaBegin();                                  // OTA first, so a bad build is still recoverable
   if (!lteUp()) say("!! LTE bringup problem");

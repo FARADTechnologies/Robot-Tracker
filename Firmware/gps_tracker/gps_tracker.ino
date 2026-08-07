@@ -304,7 +304,11 @@ void pollGnss() {
   int li = -1;
   for (int i = 1; i + 1 < n; i++)
     if ((f[i+1] == "N" || f[i+1] == "S") && f[i].length() && isDigit(f[i][0])) { li = i; break; }
-  if (f[0].length() == 0 || li < 0) { Serial.println("   [GNSS] no fix yet"); return; }
+  if (f[0].length() == 0 || li < 0) {
+    static uint32_t lastSaid = 0;              // once a second is noise; say it rarely
+    if (millis() - lastSaid > 15000) { lastSaid = millis(); Serial.println("   [GNSS] searching, no fix yet"); }
+    return;
+  }
 
   double lat = f[li].toDouble();   if (f[li+1] == "S") lat = -lat;
   double lon = f[li+2].toDouble(); if (f[li+3] == "W") lon = -lon;

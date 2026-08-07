@@ -132,6 +132,8 @@ or with `tools/send_command.py`:
 | `{"agps":1}` | enable assisted GNSS |
 | `{"antbias":0}` | stop feeding DC to the antenna (passive antenna) |
 | `{"antmv":1800}` | antenna bias voltage in mV — also sets its LNA gain |
+| `{"rlog":1}` | mirror the console to the log topic |
+| `{"wifi":0}` | switch Wi-Fi and OTA off |
 | `{"verbose":1}` | echo raw AT traffic to USB |
 | `{"cmd":"report"}` | report position immediately |
 
@@ -139,6 +141,28 @@ Commands are themselves AES-256-GCM encrypted and carry a strictly increasing
 `seq`, so the device rejects any command that is forged or replayed. The device
 echoes its live settings back in the telemetry payload, so a command is confirmed
 by the next message.
+
+## Working without a cable
+
+Once the tracker is mounted, USB is inconvenient. Three channels replace it:
+
+- **Firmware over Wi-Fi.** The board joins the network named in `config.h`, or
+  hosts one with that name if there is nothing to join, and listens for OTA:
+  ```bash
+  arduino-cli upload -p <device-ip> --protocol network --fqbn <same fqbn> Firmware/gps_tracker
+  ```
+  Joining an existing network is the better setup — hosting one means the laptop
+  has to leave its own network to reach the board.
+- **Console over MQTT.** `{"rlog":1}` mirrors log lines to the log topic,
+  encrypted like everything else. Off by default because it costs airtime.
+- **Console over USB.** Type a command as JSON, or send a raw `AT+...` straight
+  to the modem. No sequence number is required there — the cable is already
+  physical access, and it is the channel that still works when the radio link is
+  the broken thing.
+
+Telemetry carries `vbat`, the modem's supply voltage. Watch it: below about
+3.7 V the LTE transmit bursts start failing and the modem drops off the network
+before anything else visibly breaks.
 
 ## Security model
 

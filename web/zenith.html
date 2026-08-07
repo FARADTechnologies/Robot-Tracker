@@ -52,7 +52,7 @@ const CFG = window.ZENITH_CONFIG || {};
 const BROKER = CFG.broker || "wss://broker.example.com:8884/mqtt";
 const DEVICES = (CFG.devices || [
   {id:"trk01",name:"Vehicle 1",topic:"yourprefix/trk01/pos",cmd:"yourprefix/trk01/cmd"}
-]).map(d=>({keyHex:"",...d}));
+]).map(d=>({keyHex:"", log:(d.topic||"").replace(/\/pos$/,"/log"), ...d}));
 const OFFLINE_MS=60000;
 
 /* ================= STATE ================= */
@@ -102,11 +102,19 @@ function setMqtt(st){S.mqtt=st;const b=$('mqttBadge');if(!b)return;const on=st==
 function connectMqtt(){
   setMqtt('conn');
   client=mqtt.connect(BROKER,{clientId:'zenith-'+Math.random().toString(16).slice(2,8),reconnectPeriod:3000});
-  client.on('connect',()=>{setMqtt('on');DEVICES.forEach(d=>{client.subscribe(d.topic);});});
+  client.on('connect',()=>{setMqtt('on');DEVICES.forEach(d=>{client.subscribe(d.topic);if(d.log)client.subscribe(d.log);});});
   client.on('reconnect',()=>setMqtt('conn'));
   client.on('close',()=>{if(S.mqtt!=='off')setMqtt('conn');});
   client.on('error',e=>{});
   client.on('message',async(topic,payload)=>{
+    // The device's own console, so a remote command shows its effect instead of
+    // vanishing into the broker.
+    const dl=DEVICES.find(x=>x.log===topic);
+    if(dl){
+      if(!KEYS[dl.id])return;
+      try{const j=JSON.parse(await decryptFor(dl.id,payload.toString()));pushLog('rx',j.log||JSON.stringify(j));}catch(e){}
+      return;
+    }
     const d=DEVICES.find(x=>x.topic===topic);if(!d)return;const v=V(d.id);v.lastRaw=payload.toString();
     if(!KEYS[d.id])return;                       // locked → cannot decrypt
     try{
@@ -167,8 +175,8 @@ function syncMap(){
     if(hist){const p=histPt(sel);if(p){ghost=L.marker([p.lat,p.lon],{icon:L.divIcon({className:'',iconSize:[18,18],iconAnchor:[9,9],html:'<div style="width:13px;height:13px;border-radius:50%;background:#8a97a5;border:2px solid #fff;box-shadow:0 0 0 2px #8a97a5"></div>'})}).addTo(map);if(S.playing||dragging)map.panTo([p.lat,p.lon],{animate:false});}}
     if(S.mode==='live'&&S.follow)map.panTo([sel.cur.lat,sel.cur.lon]);}
 }
-function fitAll(){const ll=fleet.filter(v=>v.cur).map(v=>[v.cur.lat,v.cur.lon]);if(ll.length)map.fitBounds(L.latLngBounds(ll).pad(.2));}
-function select(id){S.selId=id;const v=V(id);if(v&&v.cur&&map&&S.mode==='live')map.panTo([v.cur.lat,v.cur.lon]);render();}
+function fitAll(){const ll=fleet.filter(v=>v.cur).map(v=>[v.cur.lat,v.cur.lon]);if(ll.length)map.flyToBounds(L.latLngBounds(ll).pad(.2),{duration:.8});}
+function select(id){S.selId=id;const v=V(id);if(v&&v.cur&&map&&S.mode==='live')map.panTo([v.cur.lat,v.cur.lon],{animate:true,duration:.7});render();}
 
 /* ================= console ================= */
 function pushLog(dir,txt,err){const c=dir==='tx'?'var(--acc)':err?'var(--err)':'var(--tx2)';S.logs.push({c,t:(dir==='tx'?'> ':'< ')+txt});
@@ -180,6 +188,8 @@ async function runCmd(cmd){
   else { // MQTT downlink
     let obj=null;const m=cmd.match(/INTERVAL\s*=\s*(\d+)/i);
     if(m)obj={interval:+m[1]};else if(/REQ POS|CGNSSINFO/i.test(cmd))obj={cmd:'report'};else if(/REBOOT/i.test(cmd))obj={cmd:'reboot'};else if(/PING/i.test(cmd))obj={cmd:'ping'};
+    else if(/LOG ON/i.test(cmd))obj={rlog:1};else if(/LOG OFF/i.test(cmd))obj={rlog:0};
+    else if(/^AT\+/i.test(cmd))obj={at:cmd};
     else{try{obj=JSON.parse(cmd);}catch(e){obj={raw:cmd};}}
     publishCmd(S.selId,obj);pushLog('rx','downlink → '+JSON.stringify(obj));
   }
@@ -209,13 +219,13 @@ const A={
   toggleLayers(e){e.stopPropagation();S.layersOpen=!S.layersOpen;render();},
   setLayer(e,el){S.layer=el.dataset.arg;S.layersOpen=false;applyTiles();render();},
   zoomIn(){map&&map.zoomIn();},zoomOut(){map&&map.zoomOut();},
-  toggleFollow(){S.follow=!S.follow;const v=V(S.selId);if(S.follow&&v&&v.cur)map.panTo([v.cur.lat,v.cur.lon]);render();},
+  toggleFollow(){S.follow=!S.follow;const v=V(S.selId);if(S.follow&&v&&v.cur)map.panTo([v.cur.lat,v.cur.lon],{animate:true,duration:.7});render();},
   goLive(){S.mode='live';S.scrub=1;S.playing=false;syncMap();render();},
   exitFocus(){S.focusId=null;syncMap();render();},
-  toggleFocusBtn(){S.focusId=S.focusId===S.selId?null:S.selId;render();syncMap();if(S.focusId&&trail)map.fitBounds(trail.getBounds().pad(.25));},
+  toggleFocusBtn(){S.focusId=S.focusId===S.selId?null:S.selId;render();syncMap();if(S.focusId&&trail)map.flyToBounds(trail.getBounds().pad(.25),{duration:.8});},
   chipSel(e,el){select(el.dataset.arg);},
-  gotoStop(e,el){const [la,lo]=el.dataset.arg.split(',').map(Number);if(map)map.setView([la,lo],16);},
-  chipFoc(el){S.selId=el.dataset.arg;S.focusId=el.dataset.arg;render();syncMap();if(trail)map.fitBounds(trail.getBounds().pad(.25));},
+  gotoStop(e,el){const [la,lo]=el.dataset.arg.split(',').map(Number);if(map)map.flyTo([la,lo],16,{duration:.7});},
+  chipFoc(el){S.selId=el.dataset.arg;S.focusId=el.dataset.arg;render();syncMap();if(trail)map.flyToBounds(trail.getBounds().pad(.25),{duration:.8});},
   shareLoc(){const v=V(S.selId),p=S.mode==='history'?histPt(v):(v&&v.cur);if(!p)return;const s=p.lat.toFixed(6)+','+p.lon.toFixed(6);if(navigator.clipboard)navigator.clipboard.writeText('https://maps.google.com/?q='+s);window.open('https://maps.google.com/?q='+s,'_blank');toast(S.lang==='tr'?'Konum kopyalandı + yeni sekmede açıldı':'Location copied + opened');},
   setRange(e,el){const k=el.dataset.arg;if(k==='özel'){toast(S.lang==='tr'?'Özel aralık — ileride':'Custom range — coming soon');return;}S.rangeKey=k;syncMap();render();},
   togglePlay(){if(S.mode==='live'){S.mode='history';S.scrub=0;S.playing=true;}else{S.playing=!S.playing;}syncMap();render();},
@@ -359,7 +369,7 @@ function buildUI(){
 
   /* console */
   if(S.consoleOpen){const usb=S.consoleTab==='usb';
-    const quick=(usb?[[tr?'GNSS Aç':'GNSS On','AT+CGNSSPWR=1'],[tr?'Konum':'Position','AT+CGNSSINFO'],[tr?'Sinyal':'Signal','AT+CSQ'],[tr?'Şebeke':'Network','AT+COPS?'],['SIM','AT+CPIN?'],[tr?'GNSS Kapat':'GNSS Off','AT+CGNSSPWR=0']]:[[tr?'Aralık 5 sn':'Interval 5s','SET INTERVAL=5'],[tr?'Konum iste':'Request pos','REQ POS'],['Ping','PING'],[tr?'Yeniden başlat':'Reboot','REBOOT']]).map(([l,c])=>`<div data-act="runCmd" data-arg="${c}" class="hb" title="${c}" style="border:1px solid var(--line2);border-radius:6px;padding:3px 11px;font-size:11px;cursor:pointer;white-space:nowrap">${l}</div>`).join('');
+    const quick=(usb?[[tr?'GNSS Aç':'GNSS On','AT+CGNSSPWR=1'],[tr?'Konum':'Position','AT+CGNSSINFO'],[tr?'Sinyal':'Signal','AT+CSQ'],[tr?'Şebeke':'Network','AT+COPS?'],['SIM','AT+CPIN?'],[tr?'GNSS Kapat':'GNSS Off','AT+CGNSSPWR=0']]:[[tr?'Log aç':'Log on','LOG ON'],[tr?'Aralık 5 sn':'Interval 5s','SET INTERVAL=5'],[tr?'Konum iste':'Request pos','REQ POS'],['Ping','PING'],[tr?'Sinyal':'Signal','AT+CSQ'],[tr?'Yeniden başlat':'Reboot','REBOOT']]).map(([l,c])=>`<div data-act="runCmd" data-arg="${c}" class="hb" title="${c}" style="border:1px solid var(--line2);border-radius:6px;padding:3px 11px;font-size:11px;cursor:pointer;white-space:nowrap">${l}</div>`).join('');
     const logs=S.logs.map(l=>`<div style="color:${l.c};white-space:pre-wrap;word-break:break-all">${esc(l.t)}</div>`).join('');
     h+=`<div style="position:fixed;left:0;right:0;bottom:0;height:46%;min-height:280px;background:var(--panel);border-top:1px solid var(--line2);box-shadow:0 -12px 32px rgba(0,0,0,.35);z-index:1400;display:flex;flex-direction:column;animation:zfade .18s ease">
       <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap"><span class="mono" style="font-weight:600;font-size:13px">&gt;_ ${T.console} · ${esc(sel?sel.name:'')}</span>

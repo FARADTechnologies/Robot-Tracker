@@ -16,6 +16,14 @@
 #define DEVICE_ID      "trk01"
 #define TOPIC          "yourprefix/trk01/pos"   // uplink  (device -> app)
 #define CMD_TOPIC      "yourprefix/trk01/cmd"   // downlink (app -> device)
+#define LOG_TOPIC      "yourprefix/trk01/log"   // optional remote console
+
+// Wi-Fi is a bench convenience: it carries OTA firmware uploads so the board
+// does not need a USB cable. Leave it disabled in the field.
+#define WIFI_SSID      "your-wifi-name"
+#define WIFI_PASS      "your-wifi-password"
+#define OTA_HOSTNAME   "trk01"
+#define OTA_PASSWORD   "choose-an-ota-password"
 
 // 32-byte AES-256-GCM key, unique per device. Generate one with:
 //   openssl rand -hex 32

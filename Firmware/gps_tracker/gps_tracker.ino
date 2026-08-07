@@ -14,6 +14,13 @@
  *  - AUTO-RECOVER: re-power GNSS if it drops (CGNSSINFO -> ERROR), and
  *    re-establish MQTT if a publish fails.
  *
+ * Working without USB:
+ *  - Firmware goes over Wi-Fi (ArduinoOTA) once the board has joined a network,
+ *    so the board only needs power. Wi-Fi is a bench convenience; the tracker
+ *    still works with it switched off.
+ *  - Logs can be mirrored to an MQTT topic (encrypted like everything else), so
+ *    the console is readable from anywhere. Off by default to save airtime.
+ *
  * Board settings (upload via right "COM" port = CH343 = COM3):
  *   FQBN esp32:esp32:esp32s3 PSRAM=opi FlashSize=16M CDCOnBoot=default
  *        USBMode=hwcdc UploadSpeed=921600
@@ -21,6 +28,8 @@
  */
 
 #include <math.h>
+#include <WiFi.h>
+#include <ArduinoOTA.h>
 #include <Preferences.h>
 #include "esp_system.h"
 #include "mbedtls/gcm.h"
@@ -52,6 +61,11 @@ bool     gnssPowered = false;
 bool     mqttUp      = false;
 uint32_t lastGnssPoll = 0;
 uint32_t lastReport   = 0;
+uint32_t lastMqttTry  = 0;
+// Modem supply voltage. Below ~3.7 V the LTE transmit bursts start failing and
+// the modem silently drops off the network, so this is worth watching.
+float    vbat = 0;
+uint32_t lastVbat = 0;
 uint32_t movMs = 1000, parkMs = 1000;  // report interval (ms); adjustable via MQTT {"interval":sec}
 String   rxAccum;                       // accumulates modem bytes for downlink parsing
 
@@ -71,6 +85,14 @@ bool  F_VERBOSE  = false;   // echo raw AT traffic to USB. OFF keeps the console
    Turn the bias OFF for a passive antenna — SIMCom explicitly recommends that. */
 bool  F_ANTBIAS  = true;
 int   ANT_MV     = 3000;    // allowed: 1200,1250,1700,1800,1850,1900,2500..3300
+/* Bench conveniences so the board never has to be tethered to USB:
+   F_WIFI  — join Wi-Fi at boot and accept OTA firmware uploads
+   F_RLOG  — mirror the console to an MQTT topic (encrypted, costs airtime) */
+bool  F_WIFI     = true;
+bool  F_RLOG     = false;
+bool  otaBusy    = false;   // pause the modem loop while flashing
+String logBuf;
+uint32_t lastLogPub = 0;
 double kfLat = 0, kfLon = 0, kfP = 100;   // filter state + covariance
 float HDOP_MAX   = 3.0;     // reject above this
 float JUMP_MAX_MPS = 60.0;  // 216 km/h — anything faster is noise
@@ -81,7 +103,9 @@ uint32_t rejCount = 0, lastFixMs = 0;
    after power-cycling the device. Uplink counters are reserved in blocks to keep
    flash wear low at 1 Hz reporting. */
 Preferences prefs;
-uint32_t upSeq = 0, upSeqPersisted = 0, lastCmdSeq = 0, cmdRejected = 0;
+uint32_t upSeq = 0, upSeqPersisted = 0, cmdRejected = 0;
+// Command sequence numbers are wall-clock milliseconds, which overflow 32 bits.
+uint64_t lastCmdSeq = 0;
 #define SEQ_BLOCK 100
 uint32_t gnssMs = 1000;     // GNSS fix rate (ms). Commercial trackers run 1-10 Hz; we were at 0.33 Hz.
 
@@ -97,6 +121,15 @@ bool   reportedOnce = false;        // force one report on the very first fix
 // ring buffer of plaintext JSON payloads (encrypted fresh at send time)
 String  qbuf[BUF_CAP];
 int     qHead = 0, qCount = 0;
+
+// Print a console line and, when remote logging is on, queue it for the log
+// topic so the same message is readable without a USB cable.
+void say(const String &s) {
+  Serial.println(s);
+  if (!F_RLOG) return;
+  logBuf += s; logBuf += '\n';
+  if (logBuf.length() > 1400) logBuf.remove(0, logBuf.length() - 1400);
+}
 
 // ---------------- AT helpers ----------------
 bool waitFor(const char *token, uint32_t timeoutMs, String &out) {
@@ -126,6 +159,20 @@ bool sendAT(const char *cmd, const char *expect, uint32_t timeoutMs) {
     delay(3);
   }
   return matched;
+}
+
+// Send a command and hand back the modem's raw reply, for answers that need parsing.
+String atReply(const char *cmd, uint32_t timeoutMs) {
+  while (Modem.available()) Modem.read();
+  if (F_VERBOSE) { Serial.print("\r\n>> "); Serial.println(cmd); }
+  Modem.print(cmd); Modem.print("\r\n");
+  String out; uint32_t start = millis();
+  while (millis() - start < timeoutMs) {
+    while (Modem.available()) { char c = (char)Modem.read(); out += c; if (F_VERBOSE) Serial.write(c); }
+    if (out.indexOf("OK\r\n") >= 0 || out.indexOf("ERROR") >= 0) break;
+    delay(3);
+  }
+  return out;
 }
 
 bool sendPrompted(const String &cmd, const uint8_t *data, size_t len) {
@@ -208,8 +255,22 @@ bool lteUp() {
   sendAT("ATE0", "OK", 1500);
   sendAT("AT+CPIN?", "READY", 3000);
   sendAT("AT+CGDCONT=1,\"IP\",\"" APN "\"", "OK", 3000);
-  for (int i = 0; i < 5; i++) { sendAT("AT+CGREG?", "+CGREG", 2000); delay(500); }
-  return true;
+  // Wait for real packet registration. MQTT cannot connect before the network
+  // is attached, and after a cold boot that takes tens of seconds.
+  for (int i = 0; i < 40; i++) {
+    String r = atReply("AT+CGREG?", 2000);
+    int k = r.indexOf("+CGREG:");
+    if (k >= 0) {
+      int c = r.indexOf(',', k);
+      if (c > 0) {
+        int st = r.substring(c + 1, c + 2).toInt();     // 1 = home, 5 = roaming
+        if (st == 1 || st == 5) { say(String("[lte] registered after ") + i + " s"); return true; }
+      }
+    }
+    delay(1000);
+  }
+  say("[lte] no packet registration yet");
+  return false;
 }
 
 void gnssOn() {
@@ -308,13 +369,14 @@ bool mqttConnect() {
   // Clean slate: MQTT state persists on the modem across ESP32 resets, so a
   // stale acquired/connected client (error 19) must be torn down first.
   sendAT("AT+CMQTTSTART", nullptr, 8000);       // ok whether or not already started
+  delay(1500);                                  // the stack needs a moment before ACCQ
   sendAT("AT+CMQTTDISC=0,120", nullptr, 5000);  // drop any stale connection (ignore error)
   sendAT("AT+CMQTTREL=0", nullptr, 3000);       // release stale client (ignore error)
   String accq = String("AT+CMQTTACCQ=0,\"") + MQTT_CLIENTID + "\",0";
   sendAT(accq.c_str(), "OK", 3000);
   String conn = String("AT+CMQTTCONNECT=0,\"") + MQTT_BROKER + "\",60,1";
-  if (!sendAT(conn.c_str(), "+CMQTTCONNECT: 0,0", 20000)) { Serial.println("!! MQTT connect failed"); mqttUp = false; return false; }
-  mqttUp = true; Serial.println("*** MQTT connected ***");
+  if (!sendAT(conn.c_str(), "+CMQTTCONNECT: 0,0", 20000)) { say("!! MQTT connect failed"); mqttUp = false; return false; }
+  mqttUp = true; say("*** MQTT connected ***");
   String st = String("AT+CMQTTSUBTOPIC=0,") + strlen(CMD_TOPIC) + ",1";
   sendPrompted(st, (const uint8_t*)CMD_TOPIC, strlen(CMD_TOPIC));
   sendAT("AT+CMQTTSUB=0", "OK", 5000);
@@ -322,17 +384,29 @@ bool mqttConnect() {
   return true;
 }
 
-// Publish an already-built plaintext JSON (encrypts fresh). Returns success.
-bool publishJson(const String &json) {
-  uint8_t blob[256];
+// Encrypt a plaintext JSON and publish it to any topic. Returns success.
+bool publishTo(const char *topic, const String &json) {
+  uint8_t blob[768];
   size_t blobLen = encryptPayload(json, blob, sizeof(blob));
-  if (blobLen == 0) { Serial.println("!! encrypt failed"); return false; }
+  if (blobLen == 0) { Serial.println("!! encrypt failed (payload too big?)"); return false; }
   String b64 = base64Of(blob, blobLen);
-  String tCmd = String("AT+CMQTTTOPIC=0,") + strlen(TOPIC);
-  if (!sendPrompted(tCmd, (const uint8_t*)TOPIC, strlen(TOPIC))) return false;
+  String tCmd = String("AT+CMQTTTOPIC=0,") + strlen(topic);
+  if (!sendPrompted(tCmd, (const uint8_t*)topic, strlen(topic))) return false;
   String pCmd = String("AT+CMQTTPAYLOAD=0,") + b64.length();
   if (!sendPrompted(pCmd, (const uint8_t*)b64.c_str(), b64.length())) return false;
   return sendAT("AT+CMQTTPUB=0,1,60", "+CMQTTPUB: 0,0", 10000);
+}
+bool publishJson(const String &json) { return publishTo(TOPIC, json); }
+
+// Ship whatever the console has accumulated to the log topic. Encrypted like
+// telemetry, because log lines can contain positions.
+void publishLog() {
+  if (!F_RLOG || !mqttUp || logBuf.length() == 0) return;
+  String chunk = logBuf.substring(0, 480);
+  logBuf.remove(0, chunk.length());
+  chunk.replace("\\", "");  chunk.replace("\"", "'");
+  chunk.replace("\r", "");  chunk.replace("\n", " | ");
+  publishTo(LOG_TOPIC, String("{\"id\":\"") + DEVICE_ID + "\",\"log\":\"" + chunk + "\"}");
 }
 
 // ---------------- store & forward ----------------
@@ -369,6 +443,7 @@ String buildJson() {
          ",\"sat\":" + fixSats + ",\"mov\":" + (moving ? "1" : "0") + ",\"rej\":" + String(rejCount) +
          ",\"iv\":" + String(parkMs / 1000) +          // echoes live config back = downlink confirmation
          ",\"kf\":" + String(F_KALMAN ? 1 : 0) +
+         ",\"vbat\":" + String(vbat, 2) +
          ",\"utc\":\"" + fixUtc + "\",\"date\":\"" + fixDate + "\"}";
 }
 
@@ -387,19 +462,58 @@ void reportPosition() {
 }
 
 // ---------------- setup / loop ----------------
+// Join Wi-Fi and open the OTA port. Bench convenience only: if the network is
+// not reachable the tracker carries on over LTE exactly as before.
+void wifiOtaBegin() {
+  if (!F_WIFI) { WiFi.mode(WIFI_OFF); return; }
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  uint32_t t0 = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < 6000) delay(200);
+  if (WiFi.status() != WL_CONNECTED) {
+    say("[wifi] no network — continuing without OTA");
+    WiFi.mode(WIFI_OFF);
+    return;
+  }
+  say(String("[wifi] connected, OTA at ") + WiFi.localIP().toString());
+
+  ArduinoOTA.setHostname(OTA_HOSTNAME);
+  ArduinoOTA.setPassword(OTA_PASSWORD);
+  // Flashing must own the CPU: stop touching the modem until it finishes.
+  ArduinoOTA.onStart([]() { otaBusy = true; Serial.println("\r\n[ota] upload started"); });
+  ArduinoOTA.onEnd([]()   { Serial.println("[ota] done, rebooting"); });
+  ArduinoOTA.onError([](ota_error_t e) { otaBusy = false; Serial.printf("[ota] error %u\r\n", e); });
+  ArduinoOTA.onProgress([](unsigned int done, unsigned int total) {
+    static int last = -1; int pct = total ? (done * 100 / total) : 0;
+    if (pct != last && pct % 10 == 0) { last = pct; Serial.printf("[ota] %d%%\r\n", pct); }
+  });
+  ArduinoOTA.begin();
+}
+
+void readVbat() {
+  String r = atReply("AT+CBC", 3000);
+  int i = r.indexOf("+CBC:");
+  if (i < 0) return;
+  vbat = r.substring(i + 5).toFloat();
+  if (vbat > 0 && vbat < 3.70)
+    say(String("[power] VBAT ") + String(vbat, 3) + " V is low — modem wants 3.8 V, "
+        "registration and publishing will fail before anything else does");
+}
+
 // Apply the antenna bias setting. Voltage trades LNA gain against front-end
 // overload: a 28 dB antenna on a 3 m coax already exceeds what the module wants,
 // so dropping to 1800 mV is often the better match.
 void applyAntennaBias() {
   if (!F_ANTBIAS) {
     sendAT("AT+CVAUXS=0", "OK", 3000);
-    Serial.println("[ant] bias OFF (passive antenna)");
+    say("[ant] bias OFF (passive antenna)");
     return;
   }
   String v = String("AT+CVAUXV=") + ANT_MV;
   sendAT(v.c_str(), "OK", 3000);
   sendAT("AT+CVAUXS=1", "OK", 3000);
-  Serial.printf("[ant] bias ON @ %d mV\r\n", ANT_MV);
+  say(String("[ant] bias ON @ ") + ANT_MV + " mV");
 }
 
 // ---------------- downlink (remote commands over MQTT) ----------------
@@ -408,18 +522,31 @@ static long jnum(const String &p, const char *key, long def) {
   int c = p.indexOf(':', i); if (c < 0) return def;
   return p.substring(c + 1).toInt();
 }
+// 64-bit variant: sequence numbers are millisecond timestamps and do not fit in a long.
+static uint64_t jnum64(const String &p, const char *key, uint64_t def) {
+  int i = p.indexOf(key); if (i < 0) return def;
+  int c = p.indexOf(':', i); if (c < 0) return def;
+  return strtoull(p.c_str() + c + 1, nullptr, 10);
+}
 static float jflt(const String &p, const char *key, float def) {
   int i = p.indexOf(key); if (i < 0) return def;
   int c = p.indexOf(':', i); if (c < 0) return def;
   return p.substring(c + 1).toFloat();
 }
-void handleCommand(const String &p) {
-  // Replay guard: commands must carry a strictly increasing seq.
-  long seq = jnum(p, "\"seq\"", -1);
-  if (seq < 0) { cmdRejected++; Serial.println("[CMD] rejected: no seq"); return; }
-  if ((uint32_t)seq <= lastCmdSeq) {
-    cmdRejected++; Serial.printf("[CMD] REPLAY rejected: seq %ld <= %lu\r\n", seq, (unsigned long)lastCmdSeq); return; }
-  lastCmdSeq = (uint32_t)seq; prefs.putUInt("cmdseq", lastCmdSeq);
+void handleCommand(const String &p, bool requireSeq) {
+  // Replay guard for the radio channel: commands must carry an increasing seq.
+  // USB is skipped — holding the cable already means physical access, and this
+  // is the channel we need when the radio link is the broken thing.
+  if (requireSeq) {
+    uint64_t seq = jnum64(p, "\"seq\"", 0);
+    if (seq == 0) { cmdRejected++; say("[CMD] rejected: no seq"); return; }
+    if (seq <= lastCmdSeq) {
+      cmdRejected++;
+      say(String("[CMD] REPLAY rejected: seq ") + (unsigned long)(seq % 1000000) + " not newer");
+      return;
+    }
+    lastCmdSeq = seq; prefs.putULong64("cmdseq", lastCmdSeq);
+  }
 
   Serial.print("\r\n[CMD] "); Serial.println(p);
   long n = jnum(p, "\"interval\"", -1);
@@ -433,15 +560,38 @@ void handleCommand(const String &p) {
   if (p.indexOf("\"verbose\"")  >= 0) F_VERBOSE  = jnum(p, "\"verbose\"", 0);
   if (p.indexOf("\"antbias\"")  >= 0) { F_ANTBIAS = jnum(p, "\"antbias\"", 1); applyAntennaBias(); }
   if (p.indexOf("\"antmv\"")    >= 0) { ANT_MV = jnum(p, "\"antmv\"", 3000); applyAntennaBias(); }
+  if (p.indexOf("\"rlog\"")     >= 0) F_RLOG = jnum(p, "\"rlog\"", 0);
+  if (p.indexOf("\"wifi\"")     >= 0) { F_WIFI = jnum(p, "\"wifi\"", 1); wifiOtaBegin(); }
   if (p.indexOf("\"hdopmax\"")  >= 0) HDOP_MAX   = jflt(p, "\"hdopmax\"", 3.0);
   { long g = jnum(p, "\"gnssms\"", -1); if (g >= 200 && g <= 10000) gnssMs = (uint32_t)g; }
   if (p.indexOf("agpsnow") >= 0) sendAT("AT+CAGPS", "OK", 25000);
   if (p.indexOf("\"lbs\"") >= 0 || p.indexOf("lbsnow") >= 0) sendAT("AT+CLBS=1", "+CLBS", 25000);
   if (p.indexOf("report")  >= 0) lastReport = 0;             // force an immediate report
-  Serial.printf("[CFG] agps=%d hdopgate=%d(max %.1f) statlock=%d jumprej=%d lbs=%d ant=%d@%dmV int=%lus rej=%lu\r\n",
-                F_AGPS, F_HDOPGATE, HDOP_MAX, F_STATLOCK, F_JUMPREJ, F_LBS, F_ANTBIAS, ANT_MV,
-                (unsigned long)(parkMs/1000), (unsigned long)rejCount);
+  char cfg[200];
+  snprintf(cfg, sizeof(cfg),
+           "[CFG] agps=%d hdopgate=%d(max %.1f) statlock=%d jumprej=%d kalman=%d lbs=%d ant=%d@%dmV "
+           "wifi=%d rlog=%d int=%lus gnss=%lums rej=%lu",
+           F_AGPS, F_HDOPGATE, HDOP_MAX, F_STATLOCK, F_JUMPREJ, F_KALMAN, F_LBS, F_ANTBIAS, ANT_MV,
+           F_WIFI, F_RLOG, (unsigned long)(parkMs/1000), (unsigned long)gnssMs, (unsigned long)rejCount);
+  say(cfg);
 }
+// Same JSON commands, typed straight into the USB console. Also accepts a raw
+// AT command so the modem can be probed when nothing else works.
+void checkUsbCommand() {
+  static String line;
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c != '\n' && c != '\r') { if (line.length() < 220) line += c; continue; }
+    line.trim();
+    if (line.length()) {
+      if (line.startsWith("{")) handleCommand(line, false);
+      else if (line.startsWith("AT")) { String r = atReply(line.c_str(), 8000); Serial.println(r); }
+      else Serial.println("[usb] send {\"key\":value} or an AT command");
+    }
+    line = "";
+  }
+}
+
 void checkDownlink() {
   while (Modem.available()) { char c = (char)Modem.read(); rxAccum += c; if (F_VERBOSE) Serial.write(c); }
   int ps = rxAccum.indexOf("+CMQTTRXPAYLOAD:");
@@ -452,7 +602,7 @@ void checkDownlink() {
       String enc = rxAccum.substring(nl + 1, pe); enc.trim();
       String pl = decryptPayload(enc);            // GCM verifies authenticity
       if (pl.length() == 0) { cmdRejected++; Serial.println("[CMD] rejected: decrypt/auth failed"); }
-      else handleCommand(pl);
+      else handleCommand(pl, true);
     }
     rxAccum = rxAccum.substring(pe + 11);
   }
@@ -468,24 +618,34 @@ void setup() {
   delay(200);
 
   prefs.begin("trk", false);                       // replay counters (survive reboot)
-  lastCmdSeq     = prefs.getUInt("cmdseq", 0);
+  lastCmdSeq     = prefs.getULong64("cmdseq", 0);
   upSeqPersisted = prefs.getUInt("upseq", 0);
   upSeq          = upSeqPersisted;                 // resume above the last reserved block
   Serial.printf("[seq] uplink>=%lu  lastCmd=%lu\r\n", (unsigned long)upSeq, (unsigned long)lastCmdSeq);
 
-  if (!lteUp()) Serial.println("!! LTE bringup problem");
-
+  wifiOtaBegin();                                  // OTA first, so a bad build is still recoverable
+  if (!lteUp()) say("!! LTE bringup problem");
+  mqttConnect();                                   // command channel before the slow GNSS steps,
+                                                   // so the device is reachable as early as possible
   sendAT("AT+CGNSSMODE?", nullptr, 3000);          // log which constellations are active
   applyAntennaBias();                              // power the antenna before it has to acquire
   if (F_AGPS) sendAT("AT+CAGPS", "OK", 25000);     // assisted GNSS: ephemeris over LTE (~tens of KB)
   gnssOn();
-  mqttConnect();
   Serial.println("Ready. Adaptive reporting: 20s moving / 5min parked, +transitions. Offline -> buffered.\r\n");
 }
 
 void loop() {
+  if (F_WIFI && WiFi.status() == WL_CONNECTED) ArduinoOTA.handle();
+  if (otaBusy) return;                       // flashing owns the CPU
+
+  checkUsbCommand();
   checkDownlink();
+  // Keep trying to reconnect even with no fix — otherwise a device that boots
+  // before the network is up stays silent and unreachable by command.
+  if (!mqttUp && millis() - lastMqttTry >= 20000) { lastMqttTry = millis(); mqttConnect(); }
   if (gnssPowered && millis() - lastGnssPoll >= gnssMs) { lastGnssPoll = millis(); pollGnss(); }
   uint32_t due = moving ? movMs : parkMs;
   if (millis() - lastReport >= due) reportPosition();
+  if (millis() - lastVbat >= 30000) { lastVbat = millis(); readVbat(); }
+  if (F_RLOG && millis() - lastLogPub >= 10000) { lastLogPub = millis(); publishLog(); }
 }

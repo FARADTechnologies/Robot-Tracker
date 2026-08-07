@@ -421,7 +421,8 @@ bool publishJson(const String &json) { return publishTo(TOPIC, json); }
 // telemetry, because log lines can contain positions.
 void publishLog() {
   if (!F_RLOG || !mqttUp || logBuf.length() == 0) return;
-  String chunk = logBuf.substring(0, 480);
+  String chunk = logBuf.substring(0, 640);   // near the encrypt buffer limit, so
+                                             // replies are not silently trimmed away
   logBuf.remove(0, chunk.length());
   chunk.replace("\\", "");  chunk.replace("\"", "'");
   chunk.replace("\r", "");  chunk.replace("\n", " | ");
@@ -719,5 +720,5 @@ void loop() {
   uint32_t due = moving ? movMs : parkMs;
   if (millis() - lastReport >= due) reportPosition();
   if (millis() - lastVbat >= 30000) { lastVbat = millis(); readVbat(); }
-  if (F_RLOG && millis() - lastLogPub >= 10000) { lastLogPub = millis(); publishLog(); }
+  if (F_RLOG && millis() - lastLogPub >= 5000) { lastLogPub = millis(); publishLog(); }
 }

@@ -538,10 +538,13 @@ void applyAntennaBias() {
     say("[ant] bias OFF (passive antenna)");
     return;
   }
+  // Not every module implements the voltage setting; say so rather than imply
+  // a level that was never applied.
   String v = String("AT+CVAUXV=") + ANT_MV;
-  sendAT(v.c_str(), "OK", 3000);
+  bool mvOk = sendAT(v.c_str(), "OK", 3000);
   sendAT("AT+CVAUXS=1", "OK", 3000);
-  say(String("[ant] bias ON @ ") + ANT_MV + " mV");
+  say(mvOk ? String("[ant] bias ON @ ") + ANT_MV + " mV"
+           : String("[ant] bias ON, voltage not settable on this module"));
 }
 
 // ---------------- downlink (remote commands over MQTT) ----------------
@@ -592,6 +595,21 @@ void handleCommand(const String &p, bool requireSeq) {
   if (p.indexOf("\"wifi\"")     >= 0) { F_WIFI = jnum(p, "\"wifi\"", 1); wifiOtaBegin(); }
   if (p.indexOf("\"hdopmax\"")  >= 0) HDOP_MAX   = jflt(p, "\"hdopmax\"", 3.0);
   { long g = jnum(p, "\"gnssms\"", -1); if (g >= 200 && g <= 10000) gnssMs = (uint32_t)g; }
+  // Raw AT passthrough with the answer returned on the log topic. Without this
+  // the modem can only be interrogated over a cable, which defeats the point.
+  int a = p.indexOf("\"at\"");
+  if (a >= 0) {
+    int c1 = p.indexOf(':', a);
+    int q1 = (c1 > 0) ? p.indexOf('"', c1) : -1;
+    int q2 = (q1 > 0) ? p.indexOf('"', q1 + 1) : -1;
+    if (q2 > q1) {
+      String raw = p.substring(q1 + 1, q2);
+      F_RLOG = true;                              // so the reply can get back out
+      String r = atReply(raw.c_str(), 8000);
+      r.replace("\r", " "); r.replace("\n", " "); r.trim();
+      say(String("[at] ") + raw + " -> " + r);
+    }
+  }
   if (p.indexOf("agpsnow") >= 0) sendAT("AT+CAGPS", "OK", 25000);
   if (p.indexOf("\"lbs\"") >= 0 || p.indexOf("lbsnow") >= 0) sendAT("AT+CLBS=1", "+CLBS", 25000);
   if (p.indexOf("report")  >= 0) lastReport = 0;             // force an immediate report

@@ -91,6 +91,7 @@ int   ANT_MV     = 3000;    // allowed: 1200,1250,1700,1800,1850,1900,2500..3300
 bool  F_WIFI     = true;
 bool  F_RLOG     = false;
 bool  otaBusy    = false;   // pause the modem loop while flashing
+bool  otaReady   = false;   // true once the OTA port is listening (station OR hosted network)
 String logBuf;
 uint32_t lastLogPub = 0;
 double kfLat = 0, kfLon = 0, kfP = 100;   // filter state + covariance
@@ -254,6 +255,7 @@ bool lteUp() {
   if (!alive) return false;
   sendAT("ATE0", "OK", 1500);
   sendAT("AT+CPIN?", "READY", 3000);
+  sendAT("AT+CMGD=1,4", nullptr, 5000);   // clear SMS storage; a full store blocks the modem
   sendAT("AT+CGDCONT=1,\"IP\",\"" APN "\"", "OK", 3000);
   // Wait for real packet registration. MQTT cannot connect before the network
   // is attached, and after a cold boot that takes tens of seconds.
@@ -465,18 +467,28 @@ void reportPosition() {
 // Join Wi-Fi and open the OTA port. Bench convenience only: if the network is
 // not reachable the tracker carries on over LTE exactly as before.
 void wifiOtaBegin() {
+  otaReady = false;
   if (!F_WIFI) { WiFi.mode(WIFI_OFF); return; }
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   uint32_t t0 = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - t0 < 6000) delay(200);
-  if (WiFi.status() != WL_CONNECTED) {
-    say("[wifi] no network — continuing without OTA");
-    WiFi.mode(WIFI_OFF);
-    return;
+
+  if (WiFi.status() == WL_CONNECTED) {
+    say(String("[wifi] joined \"") + WIFI_SSID + "\", OTA at " + WiFi.localIP().toString());
+  } else {
+    // No such network to join, so host one. Either way the board is reachable
+    // for OTA without a cable; joining an existing network is just more
+    // convenient because the laptop keeps its internet connection.
+    WiFi.mode(WIFI_AP);
+    if (!WiFi.softAP(WIFI_SSID, WIFI_PASS)) {
+      say("[wifi] could not start — continuing without OTA");
+      WiFi.mode(WIFI_OFF);
+      return;
+    }
+    say(String("[wifi] hosting \"") + WIFI_SSID + "\", OTA at " + WiFi.softAPIP().toString());
   }
-  say(String("[wifi] connected, OTA at ") + WiFi.localIP().toString());
 
   ArduinoOTA.setHostname(OTA_HOSTNAME);
   ArduinoOTA.setPassword(OTA_PASSWORD);
@@ -489,6 +501,7 @@ void wifiOtaBegin() {
     if (pct != last && pct % 10 == 0) { last = pct; Serial.printf("[ota] %d%%\r\n", pct); }
   });
   ArduinoOTA.begin();
+  otaReady = true;
 }
 
 void readVbat() {
@@ -635,7 +648,7 @@ void setup() {
 }
 
 void loop() {
-  if (F_WIFI && WiFi.status() == WL_CONNECTED) ArduinoOTA.handle();
+  if (otaReady) ArduinoOTA.handle();
   if (otaBusy) return;                       // flashing owns the CPU
 
   checkUsbCommand();

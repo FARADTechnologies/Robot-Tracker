@@ -1,8 +1,8 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ZENITH Â· GNSS Komuta Merkezi</title>
+<title>ZENITH · GNSS Komuta Merkezi</title>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
   integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
@@ -12,6 +12,8 @@
   integrity="sha384-u4uqeACkFcoKl57rBQJHVGDd1pqhW4w8X3WjTu1ZksPdxoLqdt34jpoNkJisE25W" crossorigin="anonymous"></script>
 <!-- Optional local settings (untracked). Harmless 404 if you have not created it. -->
 <script src="config.js"></script>
+<!-- Optional recorded track to pre-load (untracked). Harmless 404 if absent. -->
+<script src="seed_track.js"></script>
 <style>
 html,body{margin:0;padding:0;height:100%;overflow:hidden}
 body{font-family:'Chakra Petch',system-ui,sans-serif;background:var(--bg);color:var(--tx);font-size:13px;
@@ -47,8 +49,8 @@ input:focus{border-color:var(--acc)}
 /* ================= CONFIG (real device) ================= */
 /* Broker/topics/keys come from an untracked config.js when present (copy
    config.example.js). Keys are NEVER shipped in this file: enter them in the
-   key vault (ðŸ—) â€” they live only in this tab's memory and are wiped on close. */
-const BUILD = "b8";          // shown in the header so a stale cached page is obvious
+   key vault (🗝) — they live only in this tab's memory and are wiped on close. */
+const BUILD = "b9";          // shown in the header so a stale cached page is obvious
 const CFG = window.ZENITH_CONFIG || {};
 const BROKER = CFG.broker || "wss://broker.example.com:8884/mqtt";
 const DEVICES = (CFG.devices || [
@@ -60,7 +62,7 @@ const OFFLINE_MS=60000;
 const S={theme:'dark',lang:'tr',layer:'default',selId:DEVICES[0].id,focusId:null,mode:'live',scrub:1,playing:false,speed:2,
   follow:false,layersOpen:false,paletteOpen:false,consoleOpen:false,consoleTab:'usb',vaultOpen:false,vaultPick:null,keyMode:'session',
   keyErr:false,settingsOpen:false,search:'',unit:'km',interval:5,notifMove:true,notifOff:false,mobile:false,rangeKey:'1sa',tripsOpen:false,
-  logs:[{c:'var(--tx3)',t:'â€” ZENITH konsol hazir â€”'}],cmdIn:'',keyIn:'',mqtt:'off'};
+  logs:[{c:'var(--tx3)',t:'— ZENITH konsol hazir —'}],cmdIn:'',keyIn:'',mqtt:'off'};
 
 const fleet=DEVICES.map(d=>({id:d.id,name:d.name,online:false,warn:false,mov:false,cur:null,track:[],stops:[],lastRaw:null}));
 const DEV=id=>DEVICES.find(d=>d.id===id);
@@ -70,8 +72,8 @@ let map,client,mk={},trail,gaps,acc,ghost,stopMks=[],tileL,dragging=false;
 
 /* ================= i18n ================= */
 function dict(){const tr=S.lang==='tr';return tr?
-{veh:'araÃ§',online:'Ã§evrimiÃ§i',moving:'hareket',warn:'uyarÄ±',search:'ara / komutâ€¦  âŒ˜K',palTitle:'Komutlar',live:'CANLI',hist:'GEÃ‡MÄ°Åž',backLive:'canlÄ±ya dÃ¶n',follow:'takip',fit:'sÄ±ÄŸdÄ±r',addDev:'Cihaz Ekle',focusMode:'ODAK',exitFocus:'odaktan Ã§Ä±k',focusBtn:'Odak',console:'Konsol',share:'paylaÅŸ',acc:'Hassasiyet',sats:'Uydu',alt:'Ä°rtifa',heading:'YÃ¶n',pos:'Konum',updated:'gÃ¼ncelleme',stops:'Duraklar',stopsL:'durak',kmToday:'km',drive:'sÃ¼rÃ¼ÅŸ',avgSpd:'ort km/s',park:'PARK',moveTxt:'HAREKET',offline:'Ã‡EVRÄ°MDIÅžI',warnS:'ZAYIF SÄ°NYAL',futureBatt:'batarya Â· kontak â€” ileride',settings:'Ayarlar',vault:'Anahtar KasasÄ±',theme:'Tema',dark:'Koyu',light:'AÃ§Ä±k',langL:'Dil / Language',defLayer:'VarsayÄ±lan katman',unit:'Birim',repInt:'Raporlama aralÄ±ÄŸÄ±',notifMove:'Bildirim: hareket baÅŸladÄ±',notifOff:'Bildirim: Ã§evrimdÄ±ÅŸÄ± kaldÄ±',lyDefault:'VarsayÄ±lan',lySat:'Uydu',lyTerrain:'Arazi',connected:'baÄŸlÄ±',clear:'Temizle',send:'GÃ¶nder',freeCmd:'AT+â€¦  (â†µ gÃ¶nderir)',enterKey:'anahtar gir',unlocked:'kilidi aÃ§Ä±k',keyFor:'AES-256 anahtarÄ± (64 hex)',keyIn:'0f3aâ€¦  64 hex',unlock:'Kilidi aÃ§',session:'oturumluk',manual:'elle gir',keyErrTxt:'GeÃ§ersiz anahtar â€” 64 hex olmalÄ±',vaultNote:'Anahtarlar yalnÄ±z bu sekmenin belleÄŸinde tutulur; sayfa kapanÄ±nca silinir. HiÃ§bir anahtar dÃ¼z metin gÃ¶sterilmez/kaydedilmez.',gap:'veri yok (kapsama boÅŸluÄŸu)',qual1:'Ã§ok iyi',qual2:'iyi',qual3:'zayÄ±f'}:
-{veh:'vehicles',online:'online',moving:'moving',warn:'alerts',search:'search / commandâ€¦  âŒ˜K',palTitle:'Commands',live:'LIVE',hist:'HISTORY',backLive:'back to live',follow:'follow',fit:'fit all',addDev:'Add Device',focusMode:'FOCUS',exitFocus:'exit focus',focusBtn:'Focus',console:'Console',share:'share',acc:'Accuracy',sats:'Satellites',alt:'Altitude',heading:'Heading',pos:'Position',updated:'updated',stops:'Stops',stopsL:'stops',kmToday:'km',drive:'driving',avgSpd:'avg km/h',park:'PARKED',moveTxt:'MOVING',offline:'OFFLINE',warnS:'WEAK SIGNAL',futureBatt:'battery Â· ignition â€” coming soon',settings:'Settings',vault:'Key Vault',theme:'Theme',dark:'Dark',light:'Light',langL:'Language',defLayer:'Default layer',unit:'Units',repInt:'Report interval',notifMove:'Notify: started moving',notifOff:'Notify: went offline',lyDefault:'Default',lySat:'Satellite',lyTerrain:'Terrain',connected:'connected',clear:'Clear',send:'Send',freeCmd:'AT+â€¦  (â†µ to send)',enterKey:'enter key',unlocked:'unlocked',keyFor:'AES-256 key (64 hex)',keyIn:'0f3aâ€¦  64 hex',unlock:'Unlock',session:'session',manual:'manual',keyErrTxt:'Invalid key â€” must be 64 hex',vaultNote:'Keys live only in this tab memory and are wiped on close. No key is displayed or stored in plaintext.',gap:'no data (coverage gap)',qual1:'excellent',qual2:'good',qual3:'poor'};}
+{veh:'araç',online:'çevrimiçi',moving:'hareket',warn:'uyarı',search:'ara / komut…  ⌘K',palTitle:'Komutlar',live:'CANLI',hist:'GEÇMİŞ',backLive:'canlıya dön',follow:'takip',fit:'sığdır',addDev:'Cihaz Ekle',focusMode:'ODAK',exitFocus:'odaktan çık',focusBtn:'Odak',console:'Konsol',share:'paylaş',acc:'Hassasiyet',sats:'Uydu',alt:'İrtifa',heading:'Yön',pos:'Konum',updated:'güncelleme',stops:'Duraklar',stopsL:'durak',kmToday:'km',drive:'sürüş',avgSpd:'ort km/s',park:'PARK',moveTxt:'HAREKET',offline:'ÇEVRİMDIŞI',warnS:'ZAYIF SİNYAL',futureBatt:'batarya · kontak — ileride',settings:'Ayarlar',vault:'Anahtar Kasası',theme:'Tema',dark:'Koyu',light:'Açık',langL:'Dil / Language',defLayer:'Varsayılan katman',unit:'Birim',repInt:'Raporlama aralığı',notifMove:'Bildirim: hareket başladı',notifOff:'Bildirim: çevrimdışı kaldı',lyDefault:'Varsayılan',lySat:'Uydu',lyTerrain:'Arazi',connected:'bağlı',clear:'Temizle',send:'Gönder',freeCmd:'AT+…  (↵ gönderir)',enterKey:'anahtar gir',unlocked:'kilidi açık',keyFor:'AES-256 anahtarı (64 hex)',keyIn:'0f3a…  64 hex',unlock:'Kilidi aç',session:'oturumluk',manual:'elle gir',keyErrTxt:'Geçersiz anahtar — 64 hex olmalı',vaultNote:'Anahtarlar yalnız bu sekmenin belleğinde tutulur; sayfa kapanınca silinir. Hiçbir anahtar düz metin gösterilmez/kaydedilmez.',gap:'veri yok (kapsama boşluğu)',qual1:'çok iyi',qual2:'iyi',qual3:'zayıf'}:
+{veh:'vehicles',online:'online',moving:'moving',warn:'alerts',search:'search / command…  ⌘K',palTitle:'Commands',live:'LIVE',hist:'HISTORY',backLive:'back to live',follow:'follow',fit:'fit all',addDev:'Add Device',focusMode:'FOCUS',exitFocus:'exit focus',focusBtn:'Focus',console:'Console',share:'share',acc:'Accuracy',sats:'Satellites',alt:'Altitude',heading:'Heading',pos:'Position',updated:'updated',stops:'Stops',stopsL:'stops',kmToday:'km',drive:'driving',avgSpd:'avg km/h',park:'PARKED',moveTxt:'MOVING',offline:'OFFLINE',warnS:'WEAK SIGNAL',futureBatt:'battery · ignition — coming soon',settings:'Settings',vault:'Key Vault',theme:'Theme',dark:'Dark',light:'Light',langL:'Language',defLayer:'Default layer',unit:'Units',repInt:'Report interval',notifMove:'Notify: started moving',notifOff:'Notify: went offline',lyDefault:'Default',lySat:'Satellite',lyTerrain:'Terrain',connected:'connected',clear:'Clear',send:'Send',freeCmd:'AT+…  (↵ to send)',enterKey:'enter key',unlocked:'unlocked',keyFor:'AES-256 key (64 hex)',keyIn:'0f3a…  64 hex',unlock:'Unlock',session:'session',manual:'manual',keyErrTxt:'Invalid key — must be 64 hex',vaultNote:'Keys live only in this tab memory and are wiped on close. No key is displayed or stored in plaintext.',gap:'no data (coverage gap)',qual1:'excellent',qual2:'good',qual3:'poor'};}
 
 /* ================= helpers ================= */
 const $=id=>document.getElementById(id);
@@ -82,7 +84,7 @@ function distM(a,b){const R=6371000,d=Math.PI/180;const dla=(b.lat-a.lat)*d,dlo=
 function bearing(a,b){const d=Math.PI/180;const y=Math.sin((b.lon-a.lon)*d)*Math.cos(b.lat*d);const x=Math.cos(a.lat*d)*Math.sin(b.lat*d)-Math.sin(a.lat*d)*Math.cos(b.lat*d)*Math.cos((b.lon-a.lon)*d);return((Math.atan2(y,x)*180/Math.PI)+360)%360;}
 const fmtT=t=>{const d=new Date(t);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');};
 function durTxt(min){const tr=S.lang==='tr';min=Math.round(min);return min>=60?Math.floor(min/60)+(tr?'s ':'h ')+(min%60)+(tr?'d':'m'):min+(tr?' dk':' min');}
-function agoTxt(t){const s=Math.max(1,Math.round((Date.now()-t)/1000)),tr=S.lang==='tr';if(s<60)return s+(tr?' sn':'s');const m=Math.round(s/60);if(m<60)return m+(tr?' dk':'m');const h=Math.round(m/60);if(h<24)return h+(tr?' sa':'h');return Math.round(h/24)+(tr?' gÃ¼n':'d');}
+function agoTxt(t){const s=Math.max(1,Math.round((Date.now()-t)/1000)),tr=S.lang==='tr';if(s<60)return s+(tr?' sn':'s');const m=Math.round(s/60);if(m<60)return m+(tr?' dk':'m');const h=Math.round(m/60);if(h<24)return h+(tr?' sa':'h');return Math.round(h/24)+(tr?' gün':'d');}
 function compass(d){const tr=S.lang==='tr';const n=tr?['K','KD','D','GD','G','GB','B','KB']:['N','NE','E','SE','S','SW','W','NW'];return n[Math.round((((d%360)+360)%360)/45)%8];}
 let toastT;function toast(m){const el=$('toast');el.textContent=m;el.style.display='block';clearTimeout(toastT);toastT=setTimeout(()=>el.style.display='none',2600);}
 function rangeMs(){return {'15dk':900000,'1sa':3600000,'1g':86400000,'tum':Infinity}[S.rangeKey]||3600000;}
@@ -99,7 +101,7 @@ async function encryptFor(id,obj){const iv=crypto.getRandomValues(new Uint8Array
    device can reject replayed commands. */
 let cmdSeq=Date.now();
 function nextCmdSeq(){cmdSeq=Math.max(Date.now(),cmdSeq+1);return cmdSeq;}
-function setMqtt(st){S.mqtt=st;const b=$('mqttBadge');if(!b)return;const on=st==='on';b.style.color=on?'var(--ok)':st==='conn'?'var(--warn)':'var(--err)';b.style.borderColor=b.style.color;b.querySelector('span').style.background=b.style.color;b.querySelector('b').textContent=on?'MQTT':st==='conn'?'MQTTâ€¦':'MQTT âœ•';}
+function setMqtt(st){S.mqtt=st;const b=$('mqttBadge');if(!b)return;const on=st==='on';b.style.color=on?'var(--ok)':st==='conn'?'var(--warn)':'var(--err)';b.style.borderColor=b.style.color;b.querySelector('span').style.background=b.style.color;b.querySelector('b').textContent=on?'MQTT':st==='conn'?'MQTT…':'MQTT ✕';}
 function connectMqtt(){
   setMqtt('conn');
   client=mqtt.connect(BROKER,{clientId:'zenith-'+Math.random().toString(16).slice(2,8),reconnectPeriod:3000});
@@ -117,7 +119,7 @@ function connectMqtt(){
       return;
     }
     const d=DEVICES.find(x=>x.topic===topic);if(!d)return;const v=V(d.id);v.lastRaw=payload.toString();
-    if(!KEYS[d.id])return;                       // locked â†’ cannot decrypt
+    if(!KEYS[d.id])return;                       // locked → cannot decrypt
     try{
       const j=JSON.parse(await decryptFor(d.id,v.lastRaw));
       if(j.seq!=null){ if(v.lastSeq!=null && j.seq<=v.lastSeq) return; v.lastSeq=j.seq; }  // drop replays / out-of-order
@@ -127,63 +129,65 @@ function connectMqtt(){
 }
 async function publishCmd(devId,obj){
   const d=DEV(devId);if(!client||!d)return false;
-  if(!KEYS[devId]){toast(S.lang==='tr'?'Anahtar yok â€” Ã¶nce ðŸ— kasadan anahtarÄ± gir':'No key â€” unlock it in the vault first');return false;}
+  if(!KEYS[devId]){toast(S.lang==='tr'?'Anahtar yok — önce 🗝 kasadan anahtarı gir':'No key — unlock it in the vault first');return false;}
   client.publish(d.cmd, await encryptFor(devId,{...obj,seq:nextCmdSeq()}));
   return true;
 }
 
 /* ================= track persistence =================
    Without this a walk exists only while the tab stays open: one reload and the
-   whole outing is gone. Rows are stored as compact arrays so a day of 1 Hz data
-   fits comfortably in the storage quota. */
+   whole outing is gone. Rows are compact arrays so a day of 1 Hz data fits in
+   the storage quota. An optional seed file can pre-load a recorded track. */
 const TKEY = id => "zenith.track." + id;
 let saveTimer = null;
 
+function packPt(p){return [Math.round(p.t/1000),+p.lat.toFixed(6),+p.lon.toFixed(6),
+  +(p.spd||0).toFixed(1),+(p.hdop||0).toFixed(1),p.sat|0,p.mov|0,Math.round(p.alt||0),Math.round(p.hdg||0)];}
+function unpackPt(r){return {t:r[0]*1000,lat:r[1],lon:r[2],spd:r[3],hdop:r[4],sat:r[5],mov:r[6],alt:r[7],hdg:r[8]};}
+
 function saveTracks(){
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(()=>{
+  saveTimer=setTimeout(()=>{
     for(const v of fleet){
-      try{
-        const rows = v.track.map(p=>[Math.round(p.t/1000),+p.lat.toFixed(6),+p.lon.toFixed(6),
-          +(p.spd||0).toFixed(1),+(p.hdop||0).toFixed(1),p.sat|0,p.mov|0,Math.round(p.alt||0),Math.round(p.hdg||0)]);
-        localStorage.setItem(TKEY(v.id), JSON.stringify(rows));
-      }catch(e){ /* quota exceeded â€” keep running on memory alone */ }
+      try{ localStorage.setItem(TKEY(v.id), JSON.stringify(v.track.map(packPt))); }
+      catch(e){ /* quota full — carry on from memory */ }
     }
-  }, 5000);
+  },5000);
 }
 
 function loadTracks(){
   for(const v of fleet){
-    try{
-      const rows = JSON.parse(localStorage.getItem(TKEY(v.id)) || "[]");
-      v.track = rows.map(r=>({t:r[0]*1000,lat:r[1],lon:r[2],spd:r[3],hdop:r[4],sat:r[5],mov:r[6],alt:r[7],hdg:r[8]}));
-      if(v.track.length){ v.cur = v.track[v.track.length-1]; computeStops(v); }
-    }catch(e){}
+    let rows=[];
+    try{ rows=JSON.parse(localStorage.getItem(TKEY(v.id))||"[]"); }catch(e){}
+    const seed=(window.ZENITH_SEED&&window.ZENITH_SEED[v.id])||[];
+    const byT=new Map();
+    for(const r of seed.concat(rows)) byT.set(r[0],r);       // stored wins over seed
+    v.track=[...byT.values()].sort((a,b)=>a[0]-b[0]).map(unpackPt);
+    if(v.track.length){ v.cur=v.track[v.track.length-1]; computeStops(v); }
   }
 }
 
-/* A trip ends after half an hour without going anywhere, or after that long
-   with no data at all. */
+/* A trip ends after half an hour without going anywhere, or half an hour with
+   no data at all. */
 function computeTrips(v){
-  const pts = v.track, IDLE = 30*60*1000, R = 15;
-  if(pts.length < 2) return [];
-  const out = []; let s = 0, i = 1;
-  const push = (a,b)=>{ if(b>a && pts[b].t-pts[a].t > 60000) out.push({t0:pts[a].t,t1:pts[b].t,a,b}); };
-  while(i < pts.length){
-    if(pts[i].t - pts[i-1].t > IDLE){ push(s,i-1); s = i; i++; continue; }
-    let j = i;
-    while(j < pts.length && distM(pts[i-1],pts[j]) <= R) j++;
-    if(pts[j-1].t - pts[i-1].t >= IDLE){ push(s,i-1); s = j-1; i = j; }
-    else i = Math.max(j,i+1);
+  const pts=v.track, IDLE=30*60*1000, R=15;
+  if(pts.length<2) return [];
+  const out=[]; let s=0,i=1;
+  const push=(a,b)=>{ if(b>a && pts[b].t-pts[a].t>60000) out.push({t0:pts[a].t,t1:pts[b].t,a,b}); };
+  while(i<pts.length){
+    if(pts[i].t-pts[i-1].t>IDLE){ push(s,i-1); s=i; i++; continue; }
+    let j=i;
+    while(j<pts.length && distM(pts[i-1],pts[j])<=R) j++;
+    if(pts[j-1].t-pts[i-1].t>=IDLE){ push(s,i-1); s=j-1; i=j; }
+    else i=Math.max(j,i+1);
   }
-  push(s, pts.length-1);
-  return out.reverse();               // newest first
+  push(s,pts.length-1);
+  return out.reverse();                                       // newest first
 }
 
 function tripStats(v,tr){
-  let km = 0;
-  for(let i=tr.a+1;i<=tr.b;i++) km += distM(v.track[i-1],v.track[i]);
-  return {km:km/1000, mins:(tr.t1-tr.t0)/60000, n:tr.b-tr.a+1};
+  let m=0; for(let i=tr.a+1;i<=tr.b;i++) m+=distM(v.track[i-1],v.track[i]);
+  return {km:m/1000, mins:(tr.t1-tr.t0)/60000, n:tr.b-tr.a+1};
 }
 
 /* ================= telemetry ingest ================= */
@@ -226,7 +230,7 @@ function syncMap(){
     // instead of a fixed 40-point window that visibly slides forward at 1 Hz.
     let src=rangePts(sel); if(src.length>3000)src=src.slice(-3000);
     // Break the line wherever reporting stopped. Joining across a gap draws a
-    // road that was never travelled â€” the straight shortcut is a drawing
+    // road that was never travelled — the straight shortcut is a drawing
     // artefact, not a measurement. Gaps get their own dashed grey line so the
     // absence is visible instead of disguised.
     const GAP_MS=15000, segs=[], gapSegs=[]; let cur=[];
@@ -242,7 +246,7 @@ function syncMap(){
     if(gapSegs.length)gaps=L.polyline(gapSegs,{color:'#8a97a5',weight:1.5,opacity:.55,dashArray:'3 7'}).addTo(map);
     if(segs.length)trail=L.polyline(segs,{color:accent,weight:full?3:2.5,opacity:full?.9:.6,dashArray:full?null:'6 6'}).addTo(map);
     if(S.mode==='live')acc=L.circle([sel.cur.lat,sel.cur.lon],{radius:sel.cur.hdop*5,color:accent,weight:1,dashArray:'4 4',fillColor:accent,fillOpacity:.07}).addTo(map);
-    if(full)for(const w of sel.stops){const m=L.circleMarker([w.lat,w.lon],{radius:7,color:'#fff',weight:2,fillColor:'#e25555',fillOpacity:1}).addTo(map);m.bindTooltip(fmtT(w.t)+' Â· '+durTxt(w.dur/60000),{direction:'top'});stopMks.push(m);}
+    if(full)for(const w of sel.stops){const m=L.circleMarker([w.lat,w.lon],{radius:7,color:'#fff',weight:2,fillColor:'#e25555',fillOpacity:1}).addTo(map);m.bindTooltip(fmtT(w.t)+' · '+durTxt(w.dur/60000),{direction:'top'});stopMks.push(m);}
     if(hist){const p=histPt(sel);if(p){ghost=L.marker([p.lat,p.lon],{icon:L.divIcon({className:'',iconSize:[18,18],iconAnchor:[9,9],html:'<div style="width:13px;height:13px;border-radius:50%;background:#8a97a5;border:2px solid #fff;box-shadow:0 0 0 2px #8a97a5"></div>'})}).addTo(map);if(S.playing||dragging)map.panTo([p.lat,p.lon],{animate:false});}}
     if(S.mode==='live'&&S.follow)map.panTo([sel.cur.lat,sel.cur.lon]);}
 }
@@ -251,10 +255,10 @@ function select(id){S.selId=id;const v=V(id);if(v&&v.cur&&map&&S.mode==='live')m
 
 /* ================= console ================= */
 function pushLog(dir,txt,err){const c=dir==='tx'?'var(--acc)':err?'var(--err)':'var(--tx2)';
-  const ts=new Date().toTimeString().slice(0,8);
-  S.logs.push({c,t:ts+(dir==='tx'?'  > ':'  < ')+txt});
+  const line=new Date().toTimeString().slice(0,8)+(dir==='tx'?'  > ':'  < ')+txt;
+  S.logs.push({c,t:line});
   if(S.logs.length>400)S.logs.splice(0,S.logs.length-400);
-  const el=$('conLog');if(el){const d=document.createElement('div');d.style.cssText='color:'+c+';white-space:pre-wrap;word-break:break-all';d.textContent=S.logs[S.logs.length-1].t;el.appendChild(d);while(el.childElementCount>400)el.removeChild(el.firstChild);el.scrollTop=el.scrollHeight;}}
+  const el=$('conLog');if(el){const d=document.createElement('div');d.style.cssText='color:'+c+';white-space:pre-wrap;word-break:break-all';d.textContent=line;el.appendChild(d);while(el.childElementCount>400)el.removeChild(el.firstChild);el.scrollTop=el.scrollHeight;}}
 async function runCmd(cmd){
   pushLog('tx',cmd);
   if(S.consoleTab==='usb'){ if(!writer){await serialConnect();} await serialSend(cmd); }
@@ -267,23 +271,23 @@ async function runCmd(cmd){
     // Report what actually happened, not what we intended: a missing key means
     // the command never left the browser.
     const ok=await publishCmd(S.selId,obj);
-    pushLog(ok?'rx':'bad',(ok?'downlink â†’ ':'GÃ–NDERÄ°LEMEDÄ° (anahtar girilmedi) â†’ ')+JSON.stringify(obj));
+    pushLog(ok?'rx':'bad',(ok?'downlink → ':'GÖNDERİLEMEDİ (anahtar girilmedi) → ')+JSON.stringify(obj));
   }
 }
 /* Web Serial (USB) */
 let port,reader,writer,keepR=false,lineBuf='';
-async function serialConnect(){if(!('serial'in navigator)){pushLog('rx','Web Serial yok â€” Chrome/Edge/Brave gerekir',true);return;}
+async function serialConnect(){if(!('serial'in navigator)){pushLog('rx','Web Serial yok — Chrome/Edge/Brave gerekir',true);return;}
   try{port=await navigator.serial.requestPort();await port.open({baudRate:115200});}catch(e){pushLog('rx','USB: '+e.message,true);return;}
-  writer=port.writable.getWriter();keepR=true;pushLog('rx','[USB COM baÄŸlandÄ± @115200]');serialRead();}
+  writer=port.writable.getWriter();keepR=true;pushLog('rx','[USB COM bağlandı @115200]');serialRead();}
 async function serialRead(){const dec=new TextDecoder();reader=port.readable.getReader();try{while(keepR){const{value,done}=await reader.read();if(done)break;if(value){lineBuf+=dec.decode(value,{stream:true});let i;while((i=lineBuf.indexOf('\n'))>=0){const ln=lineBuf.slice(0,i).replace(/\r/g,'');lineBuf=lineBuf.slice(i+1);if(ln.length)pushLog('rx',ln,/ERROR/.test(ln));}}}}catch(e){}finally{try{reader.releaseLock();}catch(e){}}}
-async function serialSend(cmd){if(!writer){pushLog('rx','[Ã¶nce USB sekmesinde baÄŸlan]',true);return;}await writer.write(new TextEncoder().encode(cmd+'\r\n'));}
+async function serialSend(cmd){if(!writer){pushLog('rx','[önce USB sekmesinde bağlan]',true);return;}await writer.write(new TextEncoder().encode(cmd+'\r\n'));}
 
 /* ================= vault ================= */
 async function unlockKey(){const el=$('keyInput');const val=(S.keyIn||'').trim();
   if(!/^[0-9a-fA-F]{64}$/.test(val)){S.keyErr=true;render();return;}
   const id=S.vaultPick;try{await importKey(id,val);
     const v=V(id);if(v&&v.lastRaw){await decryptFor(id,v.lastRaw);}  // verify by decrypting last msg (throws if wrong)
-    S.vaultPick=null;S.keyErr=false;S.keyIn='';toast(dict().unlock+' âœ“');render();
+    S.vaultPick=null;S.keyErr=false;S.keyIn='';toast(dict().unlock+' ✓');render();
   }catch(e){delete KEYS[id];S.keyErr=true;render();}
 }
 
@@ -302,7 +306,7 @@ const A={
   chipSel(e,el){select(el.dataset.arg);},
   gotoStop(e,el){const [la,lo]=el.dataset.arg.split(',').map(Number);if(map)map.flyTo([la,lo],16,{duration:.7});},
   toggleTrips(){S.tripsOpen=!S.tripsOpen;render();},
-  // Show one recorded trip: widen the range far enough to contain it, then frame it.
+  // Widen the time range far enough to contain the trip, then frame it.
   showTrip(e,el){
     const [a,b]=el.dataset.arg.split(',').map(Number);
     const v=V(S.selId); if(!v||!v.track[b])return;
@@ -310,16 +314,15 @@ const A={
     S.rangeKey = age<9e5?'15dk' : age<3.6e6?'1sa' : age<8.64e7?'1g' : 'tum';
     S.tripsOpen=false; S.mode='live'; S.scrub=1;
     render(); syncMap();
-    const bounds=L.latLngBounds(v.track.slice(a,b+1).map(p=>[p.lat,p.lon]));
-    map.flyToBounds(bounds.pad(.2),{duration:.8});
+    map.flyToBounds(L.latLngBounds(v.track.slice(a,b+1).map(p=>[p.lat,p.lon])).pad(.2),{duration:.8});
   },
   chipFoc(el){S.selId=el.dataset.arg;S.focusId=el.dataset.arg;render();syncMap();if(trail)map.flyToBounds(trail.getBounds().pad(.25),{duration:.8});},
-  shareLoc(){const v=V(S.selId),p=S.mode==='history'?histPt(v):(v&&v.cur);if(!p)return;const s=p.lat.toFixed(6)+','+p.lon.toFixed(6);if(navigator.clipboard)navigator.clipboard.writeText('https://maps.google.com/?q='+s);window.open('https://maps.google.com/?q='+s,'_blank');toast(S.lang==='tr'?'Konum kopyalandÄ± + yeni sekmede aÃ§Ä±ldÄ±':'Location copied + opened');},
-  setRange(e,el){const k=el.dataset.arg;if(k==='Ã¶zel'){toast(S.lang==='tr'?'Ã–zel aralÄ±k â€” ileride':'Custom range â€” coming soon');return;}S.rangeKey=k;syncMap();render();},
+  shareLoc(){const v=V(S.selId),p=S.mode==='history'?histPt(v):(v&&v.cur);if(!p)return;const s=p.lat.toFixed(6)+','+p.lon.toFixed(6);if(navigator.clipboard)navigator.clipboard.writeText('https://maps.google.com/?q='+s);window.open('https://maps.google.com/?q='+s,'_blank');toast(S.lang==='tr'?'Konum kopyalandı + yeni sekmede açıldı':'Location copied + opened');},
+  setRange(e,el){const k=el.dataset.arg;if(k==='özel'){toast(S.lang==='tr'?'Özel aralık — ileride':'Custom range — coming soon');return;}S.rangeKey=k;syncMap();render();},
   togglePlay(){if(S.mode==='live'){S.mode='history';S.scrub=0;S.playing=true;}else{S.playing=!S.playing;}syncMap();render();},
   cycleSpeed(){S.speed={1:2,2:4,4:8,8:1}[S.speed];render();},
   fitAll(){fitAll();},
-  addDevice(){toast(S.lang==='tr'?'Cihaz ekleme â€” sihirbaz ileride':'Add device â€” wizard coming soon');},
+  addDevice(){toast(S.lang==='tr'?'Cihaz ekleme — sihirbaz ileride':'Add device — wizard coming soon');},
   openConsole(){S.consoleOpen=true;render();},closeConsole(){S.consoleOpen=false;render();},
   conUsb(){S.consoleTab='usb';render();},conMqtt(){S.consoleTab='mqtt';render();},
   usbConnect(){serialConnect();},
@@ -364,25 +367,25 @@ function buildChips(){
   const {tr,mi,stName}=ctx();
   return fleet.filter(v=>v.name.toLowerCase().includes(S.search.toLowerCase())).map(v=>{
     const on=v.id===S.selId;
-    const sub=v.mov&&v.cur?Math.round(v.cur.spd)+(mi?' mph':' km/s'):(v.online?(tr?'park':'parked'):(v.cur?agoTxt(v.cur.t):'â€”'));
+    const sub=v.mov&&v.cur?Math.round(v.cur.spd)+(mi?' mph':' km/s'):(v.online?(tr?'park':'parked'):(v.cur?agoTxt(v.cur.t):'—'));
     return `<div data-act="chipSel" data-arg="${v.id}" ondblclick="A.chipFoc({dataset:{arg:'${v.id}'}})" title="${stName(v)}" style="flex:none;display:flex;align-items:center;gap:6px;border:1px solid ${on?'var(--acc)':'var(--line2)'};background:${on?'color-mix(in srgb,var(--acc) 14%,transparent)':'transparent'};color:var(--tx);border-radius:16px;padding:3px 12px;font-size:11.5px;cursor:pointer;white-space:nowrap;opacity:${S.focusId&&v.id!==S.focusId?.45:1}"><span style="width:7px;height:7px;border-radius:50%;background:${stc(v)}"></span>${esc(v.name)}<span class="mono" style="font-size:10px;color:var(--tx2)">${esc(sub)}</span></div>`;}).join('');
 }
 function buildRail(){
   const {T,sel,hist,p,mi,stName,qual,qualC}=ctx();
-  const spd=p?Math.round(mi?p.spd*.621:p.spd):'â€”';
+  const spd=p?Math.round(mi?p.spd*.621:p.spd):'—';
   const showFull=sel&&(S.focusId===sel.id||hist);
   const stopRows=showFull?sel.stops.map(w=>`<div data-act="gotoStop" data-arg="${w.lat},${w.lon}" class="hb" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;cursor:pointer;border:1px solid transparent"><span style="width:8px;height:8px;border-radius:50%;background:var(--err);flex:none"></span><span class="mono" style="font-size:11.5px">${fmtT(w.t)}</span><span style="flex:1"></span><span style="font-size:11px;color:var(--tx2)">${durTxt(w.dur/60000)}</span></div>`).join(''):'';
-  let r=`<div style="display:flex;align-items:center;gap:8px"><div style="font-weight:700;font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sel?sel.name:'â€”')}</div><div style="flex:none;font-size:10px;letter-spacing:.08em;border:1px solid ${sel?(hist?'var(--warn)':stc(sel)):'var(--off)'};color:${sel?(hist?'var(--warn)':stc(sel)):'var(--off)'};border-radius:12px;padding:1px 9px;white-space:nowrap">${sel?(hist?T.hist:stName(sel)):'â€”'}</div></div>
-    <div class="card" style="text-align:center;padding:10px"><div class="mono" style="font-size:34px;font-weight:600;line-height:1;color:${p&&p.spd>3?'var(--acc)':'var(--tx)'}">${spd}</div><div style="font-size:10px;letter-spacing:.14em;color:var(--tx2);margin-top:4px;text-transform:uppercase">${mi?'mph':'km/s'} Â· ${sel?(hist?fmtT(p.t):stName(sel)):'â€”'}</div></div>
+  let r=`<div style="display:flex;align-items:center;gap:8px"><div style="font-weight:700;font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sel?sel.name:'—')}</div><div style="flex:none;font-size:10px;letter-spacing:.08em;border:1px solid ${sel?(hist?'var(--warn)':stc(sel)):'var(--off)'};color:${sel?(hist?'var(--warn)':stc(sel)):'var(--off)'};border-radius:12px;padding:1px 9px;white-space:nowrap">${sel?(hist?T.hist:stName(sel)):'—'}</div></div>
+    <div class="card" style="text-align:center;padding:10px"><div class="mono" style="font-size:34px;font-weight:600;line-height:1;color:${p&&p.spd>3?'var(--acc)':'var(--tx)'}">${spd}</div><div style="font-size:10px;letter-spacing:.14em;color:var(--tx2);margin-top:4px;text-transform:uppercase">${mi?'mph':'km/s'} · ${sel?(hist?fmtT(p.t):stName(sel)):'—'}</div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <div class="card"><div class="lbl">${T.acc}</div><div class="mono" style="font-size:17px;margin-top:2px">Â±${p?Math.round(p.hdop*5):'â€”'} m</div><div style="font-size:10px;color:${p?qualC(p.hdop):'var(--tx2)'}">HDOP ${p?p.hdop.toFixed(1):'â€”'} Â· ${p?qual(p.hdop):'â€”'}</div></div>
-      <div class="card"><div class="lbl">${T.sats}</div><div class="mono" style="font-size:17px;margin-top:2px">${p?p.sat:'â€”'}</div><div style="font-size:10px;color:var(--tx2)">GPS+GLO+BDS</div></div>
-      <div class="card"><div class="lbl">${T.alt}</div><div class="mono" style="font-size:17px;margin-top:2px">${p?Math.round(p.alt):'â€”'} m</div><div style="font-size:10px;color:var(--tx2)">MSL</div></div>
-      <div class="card"><div class="lbl">${T.heading}</div><div class="mono" style="font-size:17px;margin-top:2px">${p?compass(p.hdg||0):'â€”'}</div><div style="font-size:10px;color:var(--tx2)">${p?Math.round(((p.hdg||0)%360+360)%360):'â€”'}Â°</div></div></div>
-    <div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><div class="lbl">${T.pos}</div><div data-act="shareLoc" style="font-size:10px;color:var(--acc);cursor:pointer">${T.share} â†—</div></div><div class="mono" style="font-size:13px;margin-top:3px">${p?p.lat.toFixed(6):'â€”'}, ${p?p.lon.toFixed(6):'â€”'}</div><div style="font-size:10.5px;color:var(--tx2);margin-top:2px">${T.updated}: <span class="mono" style="color:${sel&&sel.online?'var(--ok)':'var(--err)'}">${sel&&sel.cur?(hist?fmtT(p.t):agoTxt(sel.cur.t)):'â€”'}</span></div></div>
+      <div class="card"><div class="lbl">${T.acc}</div><div class="mono" style="font-size:17px;margin-top:2px">±${p?Math.round(p.hdop*5):'—'} m</div><div style="font-size:10px;color:${p?qualC(p.hdop):'var(--tx2)'}">HDOP ${p?p.hdop.toFixed(1):'—'} · ${p?qual(p.hdop):'—'}</div></div>
+      <div class="card"><div class="lbl">${T.sats}</div><div class="mono" style="font-size:17px;margin-top:2px">${p?p.sat:'—'}</div><div style="font-size:10px;color:var(--tx2)">GPS+GLO+BDS</div></div>
+      <div class="card"><div class="lbl">${T.alt}</div><div class="mono" style="font-size:17px;margin-top:2px">${p?Math.round(p.alt):'—'} m</div><div style="font-size:10px;color:var(--tx2)">MSL</div></div>
+      <div class="card"><div class="lbl">${T.heading}</div><div class="mono" style="font-size:17px;margin-top:2px">${p?compass(p.hdg||0):'—'}</div><div style="font-size:10px;color:var(--tx2)">${p?Math.round(((p.hdg||0)%360+360)%360):'—'}°</div></div></div>
+    <div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><div class="lbl">${T.pos}</div><div data-act="shareLoc" style="font-size:10px;color:var(--acc);cursor:pointer">${T.share} ↗</div></div><div class="mono" style="font-size:13px;margin-top:3px">${p?p.lat.toFixed(6):'—'}, ${p?p.lon.toFixed(6):'—'}</div><div style="font-size:10.5px;color:var(--tx2);margin-top:2px">${T.updated}: <span class="mono" style="color:${sel&&sel.online?'var(--ok)':'var(--err)'}">${sel&&sel.cur?(hist?fmtT(p.t):agoTxt(sel.cur.t)):'—'}</span></div></div>
     <div style="border:1px dashed var(--line2);border-radius:10px;padding:7px 10px;font-size:10.5px;color:var(--tx3);text-align:center">${T.futureBatt}</div>`;
   if(showFull&&sel.stops.length)r+=`<div><div class="lbl" style="margin:2px 0 6px">${T.stops}</div>${stopRows}</div>`;
-  r+=`<div style="flex:1"></div><div style="display:flex;gap:7px"><div data-act="toggleFocusBtn" class="hb" style="flex:1;text-align:center;border:1px solid ${S.focusId===S.selId?'var(--acc)':'var(--line2)'};color:${S.focusId===S.selId?'#fff':'var(--tx)'};background:${S.focusId===S.selId?'var(--acc)':'transparent'};border-radius:8px;padding:7px 0;font-size:12px;cursor:pointer">â—‰ ${T.focusBtn}</div><div data-act="openConsole" class="hb mono" style="flex:1;text-align:center;border:1px solid var(--line2);border-radius:8px;padding:7px 0;font-size:12px;cursor:pointer">&gt;_ ${T.console}</div></div>`;
+  r+=`<div style="flex:1"></div><div style="display:flex;gap:7px"><div data-act="toggleFocusBtn" class="hb" style="flex:1;text-align:center;border:1px solid ${S.focusId===S.selId?'var(--acc)':'var(--line2)'};color:${S.focusId===S.selId?'#fff':'var(--tx)'};background:${S.focusId===S.selId?'var(--acc)':'transparent'};border-radius:8px;padding:7px 0;font-size:12px;cursor:pointer">◉ ${T.focusBtn}</div><div data-act="openConsole" class="hb mono" style="flex:1;text-align:center;border:1px solid var(--line2);border-radius:8px;padding:7px 0;font-size:12px;cursor:pointer">&gt;_ ${T.console}</div></div>`;
   return r;
 }
 
@@ -392,41 +395,41 @@ function buildUI(){
   const kOnline=fleet.filter(v=>v.online).length,kMoving=fleet.filter(v=>v.mov).length,kWarn=fleet.filter(v=>v.warn).length;
   const stName=v=>!v.online?T.offline:v.warn?T.warnS:v.mov?T.moveTxt:T.park;
   const qual=h=>h<1.5?T.qual1:h<2.5?T.qual2:T.qual3,qualC=h=>h<1.5?'var(--ok)':h<2.5?'var(--warn)':'var(--err)';
-  const spd=p?Math.round(mi?p.spd*.621:p.spd):'â€”';
+  const spd=p?Math.round(mi?p.spd*.621:p.spd):'—';
   const showFull=sel&&(S.focusId===sel.id||hist);
   const rp=sel?rangePts(sel):[];let km=0;for(let i=1;i<rp.length;i++){const a=rp[i-1],b=rp[i];km+=Math.hypot((b.lat-a.lat)*111,(b.lon-a.lon)*111*Math.cos(a.lat*Math.PI/180));}
   const driveMin=rp.filter(x=>x.spd>3).length* (S.rangeKey==='15dk'?0.5:S.rangeKey==='1sa'?0.5:5); // rough
-  const chips=fleet.filter(v=>v.name.toLowerCase().includes(S.search.toLowerCase())).map(v=>{const on=v.id===S.selId;const sub=v.mov?Math.round(v.cur.spd)+(mi?' mph':' km/s'):(v.online?(tr?'park':'parked'):(v.cur?agoTxt(v.cur.t):'â€”'));
+  const chips=fleet.filter(v=>v.name.toLowerCase().includes(S.search.toLowerCase())).map(v=>{const on=v.id===S.selId;const sub=v.mov?Math.round(v.cur.spd)+(mi?' mph':' km/s'):(v.online?(tr?'park':'parked'):(v.cur?agoTxt(v.cur.t):'—'));
     return `<div data-act="chipSel" data-arg="${v.id}" ondblclick="A.chipFoc({dataset:{arg:'${v.id}'}})" title="${stName(v)}" style="flex:none;display:flex;align-items:center;gap:6px;border:1px solid ${on?'var(--acc)':'var(--line2)'};background:${on?'color-mix(in srgb,var(--acc) 14%,transparent)':'transparent'};color:var(--tx);border-radius:16px;padding:3px 12px;font-size:11.5px;cursor:pointer;white-space:nowrap;opacity:${S.focusId&&v.id!==S.focusId?.45:1}"><span style="width:7px;height:7px;border-radius:50%;background:${stc(v)}"></span>${esc(v.name)}<span class="mono" style="font-size:10px;color:var(--tx2)">${esc(sub)}</span></div>`;}).join('');
-  const rangeOpts=['15dk','1sa','1g','Ã¶zel'].map(k=>{const on=S.rangeKey===k;const lb=tr?k:{'15dk':'15min','1sa':'1h','1g':'1d','Ã¶zel':'custom'}[k];return `<div data-act="setRange" data-arg="${k}" style="padding:3px 10px;font-size:11px;cursor:pointer;border-right:1px solid var(--line2);white-space:nowrap;${seg(on)}">${lb}</div>`;}).join('');
+  const rangeOpts=['15dk','1sa','1g','özel'].map(k=>{const on=S.rangeKey===k;const lb=tr?k:{'15dk':'15min','1sa':'1h','1g':'1d','özel':'custom'}[k];return `<div data-act="setRange" data-arg="${k}" style="padding:3px 10px;font-size:11px;cursor:pointer;border-right:1px solid var(--line2);white-space:nowrap;${seg(on)}">${lb}</div>`;}).join('');
   const stopRows=showFull?sel.stops.map((w,i)=>`<div data-act="gotoStop" data-arg="${w.lat},${w.lon}" class="hb" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;cursor:pointer;border:1px solid transparent"><span style="width:8px;height:8px;border-radius:50%;background:var(--err);flex:none"></span><span class="mono" style="font-size:11.5px">${fmtT(w.t)}</span><span style="flex:1"></span><span style="font-size:11px;color:var(--tx2)">${durTxt(w.dur/60000)}</span></div>`).join(''):'';
-  const stopTicks=sel?sel.stops.map(w=>{const ws=Date.now()-rangeMs();const left=Math.max(0,Math.min(100,(w.t-ws)/rangeMs()*100));return `<div title="${fmtT(w.t)} Â· ${durTxt(w.dur/60000)}" style="position:absolute;left:${left.toFixed(1)}%;top:5px;width:2px;height:12px;background:var(--err);border-radius:1px"></div>`;}).join(''):'';
+  const stopTicks=sel?sel.stops.map(w=>{const ws=Date.now()-rangeMs();const left=Math.max(0,Math.min(100,(w.t-ws)/rangeMs()*100));return `<div title="${fmtT(w.t)} · ${durTxt(w.dur/60000)}" style="position:absolute;left:${left.toFixed(1)}%;top:5px;width:2px;height:12px;background:var(--err);border-radius:1px"></div>`;}).join(''):'';
   const layerName={default:T.lyDefault,sat:T.lySat,terrain:T.lyTerrain}[S.layer];
   const layerMenu=S.layersOpen?`<div class="glass" style="border-radius:10px;padding:5px;min-width:130px;background:var(--panel)">`+['default','sat','terrain'].map(k=>`<div data-act="setLayer" data-arg="${k}" class="hb" style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;font-size:12px;cursor:pointer;color:${S.layer===k?'var(--acc)':'var(--tx)'}"><span style="width:6px;height:6px;border-radius:50%;background:${S.layer===k?'var(--acc)':'var(--line2)'}"></span>{{l}}</div>`.replace('{{l}}',{default:T.lyDefault,sat:T.lySat,terrain:T.lyTerrain}[k])).join('')+`</div>`:'';
   const pal=S.paletteOpen?`<div class="glass" style="position:absolute;top:34px;right:0;width:280px;border-radius:10px;padding:6px;z-index:1300;background:var(--panel)"><div style="font-size:10px;letter-spacing:.1em;color:var(--tx2);padding:4px 8px;text-transform:uppercase">${T.palTitle}</div>
-    <div data-act="palInterval" class="hb" style="display:flex;justify-content:space-between;gap:8px;padding:7px 8px;border-radius:6px;cursor:pointer"><span>${tr?'Raporlama aralÄ±ÄŸÄ± â†’ 5 sn':'Report interval â†’ 5 s'}</span><span class="mono" style="font-size:10px;color:var(--tx2)">INTERVAL=5</span></div>
+    <div data-act="palInterval" class="hb" style="display:flex;justify-content:space-between;gap:8px;padding:7px 8px;border-radius:6px;cursor:pointer"><span>${tr?'Raporlama aralığı → 5 sn':'Report interval → 5 s'}</span><span class="mono" style="font-size:10px;color:var(--tx2)">INTERVAL=5</span></div>
     <div data-act="palReq" class="hb" style="display:flex;justify-content:space-between;gap:8px;padding:7px 8px;border-radius:6px;cursor:pointer"><span>${tr?'Konum iste':'Request pos'}</span><span class="mono" style="font-size:10px;color:var(--tx2)">REQ POS</span></div></div>`:'';
 
   let h='';
   /* topbar */
   h+=`<div style="position:fixed;top:0;left:0;right:0;height:48px;display:flex;align-items:center;gap:14px;padding:0 14px;background:var(--panel);border-bottom:1px solid var(--line);z-index:1200">
-    <div style="display:flex;align-items:center;gap:8px;flex:none"><div style="width:26px;height:26px;border:1.5px solid var(--acc);border-radius:6px;display:grid;place-items:center;color:var(--acc);font-weight:700;font-size:14px">âŒ–</div><div style="font-weight:700;letter-spacing:.14em;font-size:14px">ZENITH</div><span class="mono" style="font-size:9px;color:var(--tx3)">${BUILD}</span>
+    <div style="display:flex;align-items:center;gap:8px;flex:none"><div style="width:26px;height:26px;border:1.5px solid var(--acc);border-radius:6px;display:grid;place-items:center;color:var(--acc);font-weight:700;font-size:14px">⌖</div><div style="font-weight:700;letter-spacing:.14em;font-size:14px">ZENITH</div><span class="mono" style="font-size:9px;color:var(--tx3)">${BUILD}</span>
     <div id="mqttBadge" style="display:flex;align-items:center;gap:5px;font-size:10px;letter-spacing:.08em;color:var(--ok);border:1px solid var(--ok);border-radius:20px;padding:2px 9px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ok);animation:zblink 2s infinite"></span><b style="font-weight:600">MQTT</b></div></div>`;
   if(!S.mobile)h+=`<div id="kpiWrap" style="display:flex;align-items:center;gap:16px;font-size:12px;color:var(--tx2);white-space:nowrap">${buildKpi()}</div>`;
   h+=`<div style="flex:1"></div>
     <div style="position:relative;flex:none"><input id="searchInput" data-act="palOpen" placeholder="${T.search}" value="${esc(S.search)}" style="width:190px;height:28px;padding:0 10px;font-size:12px;border-radius:7px">${pal}</div>
     <div class="seg"><div data-act="setTr" style="${seg(tr)}">TR</div><div data-act="setEn" style="border-left:1px solid var(--line2);${seg(!tr)}">EN</div></div>
-    <div data-act="toggleTheme" class="hb" title="${T.theme}" style="width:30px;height:28px;border:1px solid var(--line2);border-radius:7px;display:grid;place-items:center;cursor:pointer;font-size:13px;flex:none">${S.theme==='dark'?'â˜¾':'â˜€'}</div>
-    <div data-act="openVault" class="hb" title="${T.vault}" style="width:30px;height:28px;border:1px solid var(--line2);border-radius:7px;display:grid;place-items:center;cursor:pointer;font-size:13px;flex:none">ðŸ—</div>
-    <div data-act="openSettings" class="hb" title="${T.settings}" style="width:30px;height:28px;border:1px solid var(--line2);border-radius:7px;display:grid;place-items:center;cursor:pointer;font-size:13px;flex:none">âš™</div></div>`;
+    <div data-act="toggleTheme" class="hb" title="${T.theme}" style="width:30px;height:28px;border:1px solid var(--line2);border-radius:7px;display:grid;place-items:center;cursor:pointer;font-size:13px;flex:none">${S.theme==='dark'?'☾':'☀'}</div>
+    <div data-act="openVault" class="hb" title="${T.vault}" style="width:30px;height:28px;border:1px solid var(--line2);border-radius:7px;display:grid;place-items:center;cursor:pointer;font-size:13px;flex:none">🗝</div>
+    <div data-act="openSettings" class="hb" title="${T.settings}" style="width:30px;height:28px;border:1px solid var(--line2);border-radius:7px;display:grid;place-items:center;cursor:pointer;font-size:13px;flex:none">⚙</div></div>`;
 
   /* map overlays: banners + layer/zoom + follow + focus summary */
   h+=`<div style="position:fixed;top:60px;right:${S.mobile?12:300}px;z-index:900;display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-    <div data-act="toggleLayers" class="glass hb" style="border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;white-space:nowrap">â—ˆ ${layerName} â–¾</div>${layerMenu}
-    <div class="glass" style="display:flex;flex-direction:column;border-radius:8px;overflow:hidden"><div data-act="zoomIn" class="hb" style="width:30px;height:30px;display:grid;place-items:center;cursor:pointer;font-size:15px">+</div><div data-act="zoomOut" class="hb" style="width:30px;height:30px;display:grid;place-items:center;cursor:pointer;font-size:15px;border-top:1px solid var(--line2)">âˆ’</div></div></div>`;
-  h+=`<div data-act="toggleFollow" class="glass" style="position:fixed;right:${S.mobile?12:300}px;bottom:${S.mobile?150:80}px;z-index:900;display:flex;align-items:center;gap:6px;background:${S.follow?'var(--acc)':'var(--glass)'};color:${S.follow?'#fff':'var(--tx)'};border-color:${S.follow?'var(--acc)':'var(--line2)'};border-radius:20px;padding:6px 14px;font-size:12px;cursor:pointer;white-space:nowrap">â—Ž ${T.follow}</div>`;
-  if(S.focusId&&!hist&&sel)h+=`<div class="glass" style="position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:901;display:flex;align-items:center;gap:10px;border-color:var(--acc);border-radius:24px;padding:5px 8px 5px 16px;white-space:nowrap"><span style="font-size:11px;letter-spacing:.1em;color:var(--acc);font-weight:600">${T.focusMode}: ${esc(sel.name)}</span><div data-act="exitFocus" class="hb" style="font-size:11px;border:1px solid var(--line2);border-radius:14px;padding:2px 10px;cursor:pointer">âœ• ${T.exitFocus}</div></div>`;
-  if(hist)h+=`<div class="glass" style="position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:901;display:flex;align-items:center;gap:10px;border-color:var(--warn);border-radius:24px;padding:5px 8px 5px 16px;white-space:nowrap"><span style="font-size:11px;letter-spacing:.1em;color:var(--warn);font-weight:600">${T.hist} Â· <span class="mono">${p?fmtT(p.t):'â€”'}</span></span><div data-act="goLive" class="hb" style="font-size:11px;border:1px solid var(--line2);border-radius:14px;padding:2px 10px;cursor:pointer">â—Ž ${T.backLive}</div></div>`;
+    <div data-act="toggleLayers" class="glass hb" style="border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;white-space:nowrap">◈ ${layerName} ▾</div>${layerMenu}
+    <div class="glass" style="display:flex;flex-direction:column;border-radius:8px;overflow:hidden"><div data-act="zoomIn" class="hb" style="width:30px;height:30px;display:grid;place-items:center;cursor:pointer;font-size:15px">+</div><div data-act="zoomOut" class="hb" style="width:30px;height:30px;display:grid;place-items:center;cursor:pointer;font-size:15px;border-top:1px solid var(--line2)">−</div></div></div>`;
+  h+=`<div data-act="toggleFollow" class="glass" style="position:fixed;right:${S.mobile?12:300}px;bottom:${S.mobile?150:80}px;z-index:900;display:flex;align-items:center;gap:6px;background:${S.follow?'var(--acc)':'var(--glass)'};color:${S.follow?'#fff':'var(--tx)'};border-color:${S.follow?'var(--acc)':'var(--line2)'};border-radius:20px;padding:6px 14px;font-size:12px;cursor:pointer;white-space:nowrap">◎ ${T.follow}</div>`;
+  if(S.focusId&&!hist&&sel)h+=`<div class="glass" style="position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:901;display:flex;align-items:center;gap:10px;border-color:var(--acc);border-radius:24px;padding:5px 8px 5px 16px;white-space:nowrap"><span style="font-size:11px;letter-spacing:.1em;color:var(--acc);font-weight:600">${T.focusMode}: ${esc(sel.name)}</span><div data-act="exitFocus" class="hb" style="font-size:11px;border:1px solid var(--line2);border-radius:14px;padding:2px 10px;cursor:pointer">✕ ${T.exitFocus}</div></div>`;
+  if(hist)h+=`<div class="glass" style="position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:901;display:flex;align-items:center;gap:10px;border-color:var(--warn);border-radius:24px;padding:5px 8px 5px 16px;white-space:nowrap"><span style="font-size:11px;letter-spacing:.1em;color:var(--warn);font-weight:600">${T.hist} · <span class="mono">${p?fmtT(p.t):'—'}</span></span><div data-act="goLive" class="hb" style="font-size:11px;border:1px solid var(--line2);border-radius:14px;padding:2px 10px;cursor:pointer">◎ ${T.backLive}</div></div>`;
   if(S.focusId&&!hist&&sel)h+=`<div class="glass" style="position:fixed;left:12px;bottom:${S.mobile?150:80}px;z-index:900;display:flex;gap:16px;border-radius:10px;padding:8px 16px;font-size:12px;color:var(--tx2);white-space:nowrap"><span><b class="mono" style="color:var(--tx);font-size:14px">${(mi?km*.621:km).toFixed(1)}</b> ${T.kmToday}</span><span><b class="mono" style="color:var(--tx);font-size:14px">${durTxt(driveMin)}</b> ${T.drive}</span><span><b class="mono" style="color:var(--err);font-size:14px">${sel.stops.length}</b> ${T.stopsL}</span></div>`;
 
   /* right telemetry rail */
@@ -436,9 +439,9 @@ function buildUI(){
   h+=`<div style="position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);padding:9px 14px 10px;display:flex;flex-direction:column;gap:8px;z-index:1100">
     <div style="display:flex;align-items:center;gap:10px">
       <div class="seg">${rangeOpts}</div>
-      <div data-act="toggleTrips" class="hb" style="border:1px solid ${S.tripsOpen?'var(--acc)':'var(--line2)'};color:${S.tripsOpen?'var(--acc)':'var(--tx)'};border-radius:7px;padding:3px 11px;font-size:11px;cursor:pointer;flex:none;white-space:nowrap">ðŸ—‚ ${tr?'Seferler':'Trips'}</div>
-      <div data-act="togglePlay" class="hb" style="width:28px;height:26px;display:grid;place-items:center;border:1px solid var(--line2);border-radius:7px;cursor:pointer;flex:none;font-size:11px">${S.playing?'âšâš':'â–¶'}</div>
-      <div data-act="cycleSpeed" class="hb mono" style="font-size:11px;color:var(--tx2);cursor:pointer;flex:none;min-width:22px">${S.speed}Ã—</div>
+      <div data-act="toggleTrips" class="hb" style="border:1px solid ${S.tripsOpen?'var(--acc)':'var(--line2)'};color:${S.tripsOpen?'var(--acc)':'var(--tx)'};border-radius:7px;padding:3px 11px;font-size:11px;cursor:pointer;flex:none;white-space:nowrap">🗂 ${tr?'Seferler':'Trips'}</div>
+      <div data-act="togglePlay" class="hb" style="width:28px;height:26px;display:grid;place-items:center;border:1px solid var(--line2);border-radius:7px;cursor:pointer;flex:none;font-size:11px">${S.playing?'❚❚':'▶'}</div>
+      <div data-act="cycleSpeed" class="hb mono" style="font-size:11px;color:var(--tx2);cursor:pointer;flex:none;min-width:22px">${S.speed}×</div>
       <div id="scrub" style="flex:1;height:22px;position:relative;cursor:pointer;touch-action:none">
         <div style="position:absolute;left:0;right:0;top:9px;height:4px;background:var(--panel2);border:1px solid var(--line2);border-radius:3px"></div>
         <div style="position:absolute;left:0;top:9px;height:4px;width:${(S.scrub*100).toFixed(2)}%;background:linear-gradient(90deg,transparent,var(--acc));border-radius:3px;opacity:.7"></div>
@@ -446,57 +449,56 @@ function buildUI(){
         <div style="position:absolute;left:${(S.scrub*100).toFixed(2)}%;top:3px;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:${hist?'var(--warn)':'var(--acc)'};border:2.5px solid var(--panel);box-shadow:0 0 0 1.5px ${hist?'var(--warn)':'var(--acc)'},0 2px 6px rgba(0,0,0,.4)"></div>
       </div>
       <div data-act="goLive" style="flex:none;display:flex;align-items:center;gap:5px;font-size:10.5px;letter-spacing:.1em;font-weight:600;border:1px solid ${hist?'var(--line2)':'var(--ok)'};color:${hist?'var(--tx2)':'var(--ok)'};border-radius:14px;padding:2px 11px;cursor:pointer;white-space:nowrap"><span style="width:6px;height:6px;border-radius:50%;background:${hist?'var(--tx2)':'var(--ok)'};animation:${hist?'none':'zblink 2s infinite'}"></span>${T.live}</div></div>
-    <div style="display:flex;align-items:center;gap:7px;overflow-x:auto;padding-bottom:6px;margin-bottom:-6px"><div id="chipsWrap" style="display:flex;align-items:center;gap:7px">${buildChips()}</div><div data-act="addDevice" class="hb" style="flex:none;border:1px dashed var(--line2);color:var(--tx2);border-radius:16px;padding:3px 12px;font-size:11.5px;cursor:pointer;white-space:nowrap">+ ${T.addDev}</div><div style="flex:1"></div><div data-act="fitAll" class="hb" style="flex:none;border:1px solid var(--line2);border-radius:7px;padding:3px 11px;font-size:11px;cursor:pointer;white-space:nowrap">âŠž ${T.fit}</div></div></div>`;
+    <div style="display:flex;align-items:center;gap:7px;overflow-x:auto;padding-bottom:6px;margin-bottom:-6px"><div id="chipsWrap" style="display:flex;align-items:center;gap:7px">${buildChips()}</div><div data-act="addDevice" class="hb" style="flex:none;border:1px dashed var(--line2);color:var(--tx2);border-radius:16px;padding:3px 12px;font-size:11.5px;cursor:pointer;white-space:nowrap">+ ${T.addDev}</div><div style="flex:1"></div><div data-act="fitAll" class="hb" style="flex:none;border:1px solid var(--line2);border-radius:7px;padding:3px 11px;font-size:11px;cursor:pointer;white-space:nowrap">⊞ ${T.fit}</div></div></div>`;
 
   /* mobile telemetry strip */
   if(S.mobile){h+=`<div style="position:fixed;left:0;right:0;bottom:79px;display:flex;gap:8px;padding:8px 10px;overflow-x:auto;background:var(--panel);border-top:1px solid var(--line);z-index:1050">
     <div class="card" style="flex:none;text-align:center;padding:5px 12px"><div class="mono" style="font-size:18px;color:${p&&p.spd>3?'var(--acc)':'var(--tx)'}">${spd}</div><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">${mi?'mph':'km/s'}</div></div>
-    <div class="card" style="flex:none;text-align:center;padding:5px 12px"><div class="mono" style="font-size:18px">Â±${p?Math.round(p.hdop*5):'â€”'}m</div><div style="font-size:9px;color:var(--tx2)">HDOP ${p?p.hdop.toFixed(1):'â€”'}</div></div>
-    <div class="card" style="flex:none;text-align:center;padding:5px 12px"><div class="mono" style="font-size:18px">${p?p.sat:'â€”'}</div><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">${T.sats}</div></div>
-    <div class="card" style="flex:none;text-align:center;padding:5px 12px"><div class="mono" style="font-size:18px">${p?compass(p.hdg||0):'â€”'}</div><div style="font-size:9px;color:var(--tx2)">${p?Math.round(((p.hdg||0)%360+360)%360):'â€”'}Â°</div></div>
+    <div class="card" style="flex:none;text-align:center;padding:5px 12px"><div class="mono" style="font-size:18px">±${p?Math.round(p.hdop*5):'—'}m</div><div style="font-size:9px;color:var(--tx2)">HDOP ${p?p.hdop.toFixed(1):'—'}</div></div>
+    <div class="card" style="flex:none;text-align:center;padding:5px 12px"><div class="mono" style="font-size:18px">${p?p.sat:'—'}</div><div style="font-size:9px;color:var(--tx2);text-transform:uppercase">${T.sats}</div></div>
+    <div class="card" style="flex:none;text-align:center;padding:5px 12px"><div class="mono" style="font-size:18px">${p?compass(p.hdg||0):'—'}</div><div style="font-size:9px;color:var(--tx2)">${p?Math.round(((p.hdg||0)%360+360)%360):'—'}°</div></div>
     <div data-act="openConsole" class="mono" style="flex:none;display:grid;place-items:center;border:1px solid var(--line2);border-radius:9px;padding:5px 12px;font-size:13px;cursor:pointer">&gt;_</div></div>`;}
 
   /* trips */
   if(S.tripsOpen&&sel){
     const trips=computeTrips(sel);
-    const rows=trips.length?trips.map((t,i)=>{
+    const rows=trips.length?trips.map(t=>{
       const st=tripStats(sel,t);
-      const d=new Date(t.t0);
-      const day=d.toLocaleDateString(tr?'tr-TR':'en-GB',{day:'2-digit',month:'short'});
-      return `<div data-act="showTrip" data-arg="${t.a},${t.b}" class="hb" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid var(--line)">
-        <span class="mono" style="font-size:11.5px;color:var(--tx2);min-width:96px">${day} ${fmtT(t.t0)}â€“${fmtT(t.t1)}</span>
+      const day=new Date(t.t0).toLocaleDateString(tr?'tr-TR':'en-GB',{day:'2-digit',month:'short'});
+      return `<div data-act="showTrip" data-arg="${t.a},${t.b}" class="hb" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid var(--line);margin-bottom:4px">
+        <span class="mono" style="font-size:11.5px;color:var(--tx2);min-width:104px">${day} ${fmtT(t.t0)}–${fmtT(t.t1)}</span>
         <span class="mono" style="font-size:13px;font-weight:600">${st.km.toFixed(2)} km</span>
         <span style="flex:1"></span>
-        <span style="font-size:11px;color:var(--tx2)">${durTxt(st.mins)} Â· ${st.n} nokta</span></div>`;
-    }).join(''):`<div style="font-size:12px;color:var(--tx2);padding:10px">${tr?'HenÃ¼z kayÄ±tlÄ± sefer yok. Cihaz hareket ettikÃ§e burada birikecek.':'No trips recorded yet.'}</div>`;
-    h+=`<div class="glass" style="position:fixed;left:14px;bottom:96px;width:min(420px,92vw);max-height:44vh;overflow-y:auto;border-radius:12px;padding:10px;z-index:1150;background:var(--panel)">
-      <div style="display:flex;align-items:center;margin-bottom:8px"><span style="font-weight:700;font-size:13px">ðŸ—‚ ${tr?'Seferler':'Trips'}</span>
-      <span style="font-size:11px;color:var(--tx2);margin-left:8px">${sel.track.length} ${tr?'kayÄ±tlÄ± nokta':'stored points'}</span>
-      <div style="flex:1"></div><div data-act="toggleTrips" style="cursor:pointer;color:var(--tx2)">âœ•</div></div>${rows}</div>`;
+        <span style="font-size:11px;color:var(--tx2)">${durTxt(st.mins)} · ${st.n}</span></div>`;
+    }).join(''):`<div style="font-size:12px;color:var(--tx2);padding:10px">${tr?'Henüz kayıtlı sefer yok.':'No trips yet.'}</div>`;
+    h+=`<div class="glass" style="position:fixed;left:14px;bottom:96px;width:min(430px,92vw);max-height:44vh;overflow-y:auto;border-radius:12px;padding:10px;z-index:1150;background:var(--panel)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-weight:700;font-size:13px">🗂 ${tr?'Seferler':'Trips'}</span>
+      <span style="font-size:11px;color:var(--tx2)">${sel.track.length} ${tr?'nokta kayıtlı':'points stored'}</span>
+      <div style="flex:1"></div><div data-act="toggleTrips" style="cursor:pointer;color:var(--tx2)">✕</div></div>${rows}</div>`;
   }
 
   /* console */
   if(S.consoleOpen){const usb=S.consoleTab==='usb';
-    const quick=(usb?[[tr?'GNSS AÃ§':'GNSS On','AT+CGNSSPWR=1'],[tr?'Konum':'Position','AT+CGNSSINFO'],[tr?'Sinyal':'Signal','AT+CSQ'],[tr?'Åžebeke':'Network','AT+COPS?'],['SIM','AT+CPIN?'],[tr?'GNSS Kapat':'GNSS Off','AT+CGNSSPWR=0']]:[[tr?'Log aÃ§':'Log on','LOG ON'],[tr?'AralÄ±k 5 sn':'Interval 5s','SET INTERVAL=5'],[tr?'Konum iste':'Request pos','REQ POS'],['Ping','PING'],[tr?'Sinyal':'Signal','AT+CSQ'],[tr?'Yeniden baÅŸlat':'Reboot','REBOOT']]).map(([l,c])=>`<div data-act="runCmd" data-arg="${c}" class="hb" title="${c}" style="border:1px solid var(--line2);border-radius:6px;padding:3px 11px;font-size:11px;cursor:pointer;white-space:nowrap">${l}</div>`).join('');
+    const quick=(usb?[[tr?'GNSS Aç':'GNSS On','AT+CGNSSPWR=1'],[tr?'Konum':'Position','AT+CGNSSINFO'],[tr?'Sinyal':'Signal','AT+CSQ'],[tr?'Şebeke':'Network','AT+COPS?'],['SIM','AT+CPIN?'],[tr?'GNSS Kapat':'GNSS Off','AT+CGNSSPWR=0']]:[[tr?'Log aç':'Log on','LOG ON'],[tr?'Aralık 5 sn':'Interval 5s','SET INTERVAL=5'],[tr?'Konum iste':'Request pos','REQ POS'],['Ping','PING'],[tr?'Sinyal':'Signal','AT+CSQ'],[tr?'Yeniden başlat':'Reboot','REBOOT']]).map(([l,c])=>`<div data-act="runCmd" data-arg="${c}" class="hb" title="${c}" style="border:1px solid var(--line2);border-radius:6px;padding:3px 11px;font-size:11px;cursor:pointer;white-space:nowrap">${l}</div>`).join('');
     const logs=S.logs.map(l=>`<div style="color:${l.c};white-space:pre-wrap;word-break:break-all">${esc(l.t)}</div>`).join('');
     h+=`<div style="position:fixed;left:0;right:0;bottom:0;height:46%;min-height:280px;background:var(--panel);border-top:1px solid var(--line2);box-shadow:0 -12px 32px rgba(0,0,0,.35);z-index:1400;display:flex;flex-direction:column;animation:zfade .18s ease">
-      <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap"><span class="mono" style="font-weight:600;font-size:13px">&gt;_ ${T.console} Â· ${esc(sel?sel.name:'')}</span>
-        <div class="seg"><div data-act="conUsb" style="${seg(usb)}">USB Â· COM3</div><div data-act="conMqtt" style="border-left:1px solid var(--line2);${seg(!usb)}">MQTT Â· ${sel?sel.id:''}</div></div>
-        ${usb?`<div data-act="usbConnect" class="hb" style="font-size:11px;border:1px solid var(--acc);color:var(--acc);border-radius:6px;padding:2px 10px;cursor:pointer">USB baÄŸlan</div>`:`<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ok)"><i style="width:6px;height:6px;border-radius:50%;background:var(--ok)"></i>${T.connected}</span>`}
-        <div style="flex:1"></div><div data-act="clearLog" class="hb" style="font-size:11px;border:1px solid var(--line2);border-radius:6px;padding:2px 10px;cursor:pointer">${T.clear}</div><div data-act="closeConsole" class="hb" style="font-size:13px;cursor:pointer;color:var(--tx2);padding:0 4px">âœ•</div></div>
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap"><span class="mono" style="font-weight:600;font-size:13px">&gt;_ ${T.console} · ${esc(sel?sel.name:'')}</span>
+        <div class="seg"><div data-act="conUsb" style="${seg(usb)}">USB · COM3</div><div data-act="conMqtt" style="border-left:1px solid var(--line2);${seg(!usb)}">MQTT · ${sel?sel.id:''}</div></div>
+        ${usb?`<div data-act="usbConnect" class="hb" style="font-size:11px;border:1px solid var(--acc);color:var(--acc);border-radius:6px;padding:2px 10px;cursor:pointer">USB bağlan</div>`:`<span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ok)"><i style="width:6px;height:6px;border-radius:50%;background:var(--ok)"></i>${T.connected}</span>`}
+        <div style="flex:1"></div><div data-act="clearLog" class="hb" style="font-size:11px;border:1px solid var(--line2);border-radius:6px;padding:2px 10px;cursor:pointer">${T.clear}</div><div data-act="closeConsole" class="hb" style="font-size:13px;cursor:pointer;color:var(--tx2);padding:0 4px">✕</div></div>
       <div style="display:flex;gap:6px;padding:8px 14px 0;flex-wrap:wrap">${quick}</div>
       <div id="conLog" style="flex:1;overflow-y:auto;margin:8px 14px;background:var(--in);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.75">${logs}</div>
-      <div style="display:flex;gap:8px;padding:0 14px 12px"><input id="cmdInput" placeholder="${T.freeCmd}" value="${esc(S.cmdIn)}" style="flex:1;height:30px;padding:0 12px;font-family:'IBM Plex Mono',monospace;font-size:12px;border-radius:7px"><div data-act="sendCmd" style="background:var(--acc);color:#fff;border-radius:7px;padding:0 18px;display:grid;place-items:center;font-size:12px;cursor:pointer;white-space:nowrap">${T.send} â†µ</div></div></div>`;}
+      <div style="display:flex;gap:8px;padding:0 14px 12px"><input id="cmdInput" placeholder="${T.freeCmd}" value="${esc(S.cmdIn)}" style="flex:1;height:30px;padding:0 12px;font-family:'IBM Plex Mono',monospace;font-size:12px;border-radius:7px"><div data-act="sendCmd" style="background:var(--acc);color:#fff;border-radius:7px;padding:0 18px;display:grid;place-items:center;font-size:12px;cursor:pointer;white-space:nowrap">${T.send} ↵</div></div></div>`;}
 
   /* vault */
   if(S.vaultOpen){const rows=fleet.map(v=>{const open=!!KEYS[v.id],picked=S.vaultPick===v.id;return `<div style="display:flex;align-items:center;gap:9px;padding:7px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:9px"><span style="width:8px;height:8px;border-radius:50%;background:${open?'var(--ok)':'var(--err)'}"></span><span style="font-size:12.5px">${esc(v.name)}</span><div style="flex:1"></div>${open?`<span style="font-size:10.5px;border:1px solid var(--ok);color:var(--ok);border-radius:12px;padding:2px 10px">${T.unlocked}</span>`:`<div data-act="vaultPick" data-arg="${v.id}" style="font-size:10.5px;border:1px solid ${picked?'var(--acc)':'var(--line2)'};color:${picked?'var(--acc)':'var(--tx2)'};border-radius:12px;padding:2px 10px;cursor:pointer">${T.enterKey}</div>`}</div>`;}).join('');
-    const pick=S.vaultPick?`<div style="display:flex;flex-direction:column;gap:8px;border:1px solid var(--acc);border-radius:10px;padding:10px"><div style="font-size:11px;color:var(--acc)">${esc(V(S.vaultPick).name)} â€” ${T.keyFor}</div><input id="keyInput" placeholder="${T.keyIn}" value="${esc(S.keyIn)}" style="height:30px;padding:0 10px;font-family:'IBM Plex Mono',monospace;font-size:12px;border-radius:7px;letter-spacing:.05em"><div style="display:flex;gap:8px;align-items:center"><div class="seg"><div data-act="kmSession" style="${seg(S.keyMode==='session')}">${T.session}</div><div data-act="kmManual" style="border-left:1px solid var(--line2);${seg(S.keyMode==='manual')}">${T.manual}</div></div><div style="flex:1"></div><div data-act="unlock" style="background:var(--acc);color:#fff;border-radius:7px;padding:4px 16px;font-size:12px;cursor:pointer">${T.unlock}</div></div>${S.keyErr?`<div style="font-size:11px;color:var(--err)">${T.keyErrTxt}</div>`:''}</div>`:'';
-    h+=`<div data-act="closeVault" style="position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(3px);z-index:1500;display:grid;place-items:center"><div data-act="stop" style="width:min(420px,92vw);max-height:80vh;overflow-y:auto;background:var(--panel);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:10px;animation:zfade .2s ease"><div style="display:flex;align-items:center;gap:8px"><span style="font-weight:700;font-size:15px">ðŸ— ${T.vault}</span><span class="mono" style="font-size:10.5px;color:var(--tx2)">AES-256-GCM</span><div style="flex:1"></div><div data-act="closeVault" style="cursor:pointer;color:var(--tx2)">âœ•</div></div>${rows}${pick}<div style="font-size:10.5px;color:var(--tx2);border-top:1px dashed var(--line2);padding-top:8px;line-height:1.5">${T.vaultNote}</div></div></div>`;}
+    const pick=S.vaultPick?`<div style="display:flex;flex-direction:column;gap:8px;border:1px solid var(--acc);border-radius:10px;padding:10px"><div style="font-size:11px;color:var(--acc)">${esc(V(S.vaultPick).name)} — ${T.keyFor}</div><input id="keyInput" placeholder="${T.keyIn}" value="${esc(S.keyIn)}" style="height:30px;padding:0 10px;font-family:'IBM Plex Mono',monospace;font-size:12px;border-radius:7px;letter-spacing:.05em"><div style="display:flex;gap:8px;align-items:center"><div class="seg"><div data-act="kmSession" style="${seg(S.keyMode==='session')}">${T.session}</div><div data-act="kmManual" style="border-left:1px solid var(--line2);${seg(S.keyMode==='manual')}">${T.manual}</div></div><div style="flex:1"></div><div data-act="unlock" style="background:var(--acc);color:#fff;border-radius:7px;padding:4px 16px;font-size:12px;cursor:pointer">${T.unlock}</div></div>${S.keyErr?`<div style="font-size:11px;color:var(--err)">${T.keyErrTxt}</div>`:''}</div>`:'';
+    h+=`<div data-act="closeVault" style="position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(3px);z-index:1500;display:grid;place-items:center"><div data-act="stop" style="width:min(420px,92vw);max-height:80vh;overflow-y:auto;background:var(--panel);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:10px;animation:zfade .2s ease"><div style="display:flex;align-items:center;gap:8px"><span style="font-weight:700;font-size:15px">🗝 ${T.vault}</span><span class="mono" style="font-size:10.5px;color:var(--tx2)">AES-256-GCM</span><div style="flex:1"></div><div data-act="closeVault" style="cursor:pointer;color:var(--tx2)">✕</div></div>${rows}${pick}<div style="font-size:10.5px;color:var(--tx2);border-top:1px dashed var(--line2);padding-top:8px;line-height:1.5">${T.vaultNote}</div></div></div>`;}
 
   /* settings */
   if(S.settingsOpen){h+=`<div data-act="closeSettings" style="position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:1500"></div>
     <div style="position:fixed;top:0;right:0;bottom:0;width:min(320px,88vw);background:var(--panel);border-left:1px solid var(--line2);box-shadow:var(--shadow);z-index:1501;padding:16px;display:flex;flex-direction:column;gap:4px;overflow-y:auto;animation:zfade .18s ease">
-    <div style="display:flex;align-items:center;margin-bottom:8px"><span style="font-weight:700;font-size:15px">âš™ ${T.settings}</span><div style="flex:1"></div><div data-act="closeSettings" style="cursor:pointer;color:var(--tx2)">âœ•</div></div>
+    <div style="display:flex;align-items:center;margin-bottom:8px"><span style="font-weight:700;font-size:15px">⚙ ${T.settings}</span><div style="flex:1"></div><div data-act="closeSettings" style="cursor:pointer;color:var(--tx2)">✕</div></div>
     <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px dashed var(--line)"><span style="font-size:12.5px">${T.theme}</span><div class="seg"><div data-act="setDark" style="${seg(S.theme==='dark')}">${T.dark}</div><div data-act="setLight" style="border-left:1px solid var(--line2);${seg(S.theme==='light')}">${T.light}</div></div></div>
     <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px dashed var(--line)"><span style="font-size:12.5px">${T.langL}</span><div class="seg"><div data-act="setTr" style="${seg(tr)}">TR</div><div data-act="setEn" style="border-left:1px solid var(--line2);${seg(!tr)}">EN</div></div></div>
     <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px dashed var(--line)"><span style="font-size:12.5px">${T.unit}</span><div class="seg"><div data-act="setKm" style="${seg(!mi)}">km</div><div data-act="setMi" style="border-left:1px solid var(--line2);${seg(mi)}">mi</div></div></div>
@@ -504,7 +506,7 @@ function buildUI(){
       <input id="intRange" type="range" min="1" max="20" value="${S.interval}" style="width:100%;margin-top:8px;accent-color:var(--acc);background:transparent"><div style="font-size:10px;color:var(--tx2);display:flex;justify-content:space-between"><span>1 sn</span><span style="border:1px solid var(--acc);color:var(--acc);border-radius:10px;padding:0 8px;font-size:9.5px">downlink</span><span>20 sn</span></div></div>
     <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px dashed var(--line)"><span style="font-size:12.5px">${T.notifMove}</span><div data-act="togNotifMove" style="width:34px;height:18px;border-radius:10px;background:${S.notifMove?'var(--ok)':'var(--line2)'};position:relative;cursor:pointer"><div style="position:absolute;top:2px;left:${S.notifMove?'18px':'2px'};width:14px;height:14px;border-radius:50%;background:#fff;transition:left .15s"></div></div></div>
     <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px dashed var(--line)"><span style="font-size:12.5px">${T.notifOff}</span><div data-act="togNotifOff" style="width:34px;height:18px;border-radius:10px;background:${S.notifOff?'var(--ok)':'var(--line2)'};position:relative;cursor:pointer"><div style="position:absolute;top:2px;left:${S.notifOff?'18px':'2px'};width:14px;height:14px;border-radius:50%;background:#fff;transition:left .15s"></div></div></div>
-    <div style="flex:1"></div><div class="mono" style="font-size:10px;color:var(--tx3);text-align:center">ZENITH Â· ESP32-S3 + A7608 Â· MQTT/WSS</div></div>`;}
+    <div style="flex:1"></div><div class="mono" style="font-size:10px;color:var(--tx3);text-align:center">ZENITH · ESP32-S3 + A7608 · MQTT/WSS</div></div>`;}
 
   return h;
 }
@@ -522,7 +524,7 @@ function postRender(){
   const si=$('searchInput');if(si)si.oninput=e=>{S.search=e.target.value;render();};
   const ci=$('cmdInput');if(ci){ci.oninput=e=>S.cmdIn=e.target.value;ci.onkeydown=e=>{if(e.key==='Enter'){A.sendCmd();}};}
   const ki=$('keyInput');if(ki)ki.oninput=e=>S.keyIn=e.target.value;
-  const ir=$('intRange');if(ir)ir.onchange=e=>{S.interval=+e.target.value;publishCmd(S.selId,{interval:S.interval});toast((S.lang==='tr'?'Downlink: aralÄ±k â†’ ':'Downlink: interval â†’ ')+S.interval+'s');render();};
+  const ir=$('intRange');if(ir)ir.onchange=e=>{S.interval=+e.target.value;publishCmd(S.selId,{interval:S.interval});toast((S.lang==='tr'?'Downlink: aralık → ':'Downlink: interval → ')+S.interval+'s');render();};
   const sc=$('scrub');if(sc){const move=e=>{const r=sc.getBoundingClientRect();const pct=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));if(pct>=.995){S.scrub=1;S.mode='live';S.playing=false;}else{S.scrub=pct;S.mode='history';S.playing=false;}syncMap();render();};
     sc.onpointerdown=e=>{sc.setPointerCapture(e.pointerId);dragging=true;move(e);};sc.onpointermove=e=>{if(dragging)move(e);};sc.onpointerup=()=>{dragging=false;};}
 }
@@ -551,7 +553,7 @@ setInterval(checkOffline,5000);
   document.body.dataset.th=S.theme;
   S.mobile=window.matchMedia('(max-width:760px)').matches;
   window.matchMedia('(max-width:760px)').addEventListener('change',e=>{S.mobile=e.matches;render();});
-  loadTracks();                                    // bring back whatever the last session recorded
+  loadTracks();                                    // bring back what earlier sessions recorded
   for(const d of DEVICES){if(d.keyHex)try{await importKey(d.id,d.keyHex);}catch(e){}}
   render();
   const wait=setInterval(()=>{if(window.L){clearInterval(wait);initMap();render();}},80);

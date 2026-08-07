@@ -29,6 +29,7 @@
 
 #include <math.h>
 #include <WiFi.h>
+#include <WebServer.h>
 #include <ArduinoOTA.h>
 #include <Preferences.h>
 #include "esp_system.h"
@@ -92,6 +93,10 @@ bool  F_WIFI     = true;
 bool  F_RLOG     = false;
 bool  otaBusy    = false;   // pause the modem loop while flashing
 bool  otaReady   = false;   // true once the OTA port is listening (station OR hosted network)
+/* When the radio link dies there is otherwise no way to ask the device what is
+   wrong, even with Wi-Fi working. This serves that answer over HTTP. */
+WebServer http(80);
+bool  httpReady  = false;
 String logBuf;
 uint32_t lastLogPub = 0;
 double kfLat = 0, kfLon = 0, kfP = 100;   // filter state + covariance
@@ -121,7 +126,8 @@ String fixAlt, fixSpd, fixHdop, fixUtc, fixDate, fixSats;
 
 bool   moving = false;              // current motion state
 bool   havePrevFix = false;
-double prevLat = 0, prevLon = 0;    // previous fix, for motion detection
+double prevLat = 0, prevLon = 0;    // anchor for the multi-second motion window
+uint32_t prevRefMs = 0, stillSince = 0;
 bool   reportedOnce = false;        // force one report on the very first fix
 
 // ring buffer of plaintext JSON payloads (encrypted fresh at send time)
@@ -140,7 +146,18 @@ void say(const String &s) {
 // Modem commands block for seconds at a time. Servicing OTA inside those waits
 // keeps the board answerable to a firmware upload at any moment, instead of only
 // in the gaps between commands.
-inline void otaPump() { if (otaReady) ArduinoOTA.handle(); }
+/* Modem commands block for tens of seconds, and while the SIM is missing the
+   loop spends nearly all its time inside them — so OTA and HTTP have to be
+   served from in here or they are never served at all. The depth counter keeps
+   that safe: it marks when a command is in flight so the /at endpoint declines
+   rather than talking over it on the same UART. */
+int modemDepth = 0;
+struct ModemLock { ModemLock() { modemDepth++; } ~ModemLock() { modemDepth--; } };
+
+inline void otaPump() {
+  if (otaReady) ArduinoOTA.handle();
+  if (httpReady) http.handleClient();
+}
 
 // ---------------- AT helpers ----------------
 bool waitFor(const char *token, uint32_t timeoutMs, String &out) {
@@ -157,6 +174,7 @@ bool waitFor(const char *token, uint32_t timeoutMs, String &out) {
 }
 
 bool sendAT(const char *cmd, const char *expect, uint32_t timeoutMs) {
+  ModemLock lk;
   while (Modem.available()) Modem.read();
   if (F_VERBOSE) { Serial.print("\r\n>> "); Serial.println(cmd); }
   Modem.print(cmd); Modem.print("\r\n");
@@ -176,6 +194,7 @@ bool sendAT(const char *cmd, const char *expect, uint32_t timeoutMs) {
 
 // Send a command and hand back the modem's raw reply, for answers that need parsing.
 String atReply(const char *cmd, uint32_t timeoutMs) {
+  ModemLock lk;
   while (Modem.available()) Modem.read();
   if (F_VERBOSE) { Serial.print("\r\n>> "); Serial.println(cmd); }
   Modem.print(cmd); Modem.print("\r\n");
@@ -190,6 +209,7 @@ String atReply(const char *cmd, uint32_t timeoutMs) {
 }
 
 bool sendPrompted(const String &cmd, const uint8_t *data, size_t len) {
+  ModemLock lk;
   while (Modem.available()) Modem.read();
   if (F_VERBOSE) { Serial.print("\r\n>> "); Serial.println(cmd); }
   Modem.print(cmd); Modem.print("\r\n");
@@ -336,16 +356,36 @@ void pollGnss() {
     if (d / dt > JUMP_MAX_MPS) {
       rejCount++; Serial.printf("   [GNSS] REJECT jump %.0f m in %.1f s\r\n", d, dt); return; }
   }
-  /* motion detection on RAW position (stays responsive) */
+  /* ---------- motion detection ----------
+     Comparing one fix to the next cannot see a walk: a pedestrian covers about
+     1.4 m per second, which sits inside the receiver's own noise. Measure the
+     displacement over a few seconds instead, where real movement clears the
+     noise comfortably. Speed from the receiver is a second opinion. */
   bool wasMoving = moving;
-  /* threshold must scale with the fix rate: at 1 Hz a walk is only ~1.4 m per fix,
-     so a fixed 5 m would read as "parked". Speed field is used as a second opinion. */
-  double effDist = MOVE_DIST_M * (double)gnssMs / 3000.0; if (effDist < 1.5) effDist = 1.5;
-  double spdKmh  = (li + 7 < n) ? f[li + 7].toDouble() : 0.0;
-  if (havePrevFix) moving = (distMeters(prevLat, prevLon, lat, lon) >= effDist) || (spdKmh > 2.0);
-  prevLat = lat; prevLon = lon; havePrevFix = true;
-  /* parked -> heavy EMA so the marker stops wandering; moving -> raw for responsiveness */
-  if (F_STATLOCK && haveFix && !moving) { lat = fixLat*0.9 + lat*0.1; lon = fixLon*0.9 + lon*0.1; }
+  double spdKmh = (li + 7 < n) ? f[li + 7].toDouble() : 0.0;
+  if (!havePrevFix) { prevLat = lat; prevLon = lon; prevRefMs = millis(); havePrevFix = true; }
+  double refDt = (millis() - prevRefMs) / 1000.0;
+  double refD  = distMeters(prevLat, prevLon, lat, lon);
+  if (refDt >= 4.0) {                       // decide on a 4 s window, then re-anchor
+    moving = (refD >= 6.0) || (spdKmh > 1.5);
+    prevLat = lat; prevLon = lon; prevRefMs = millis();
+  } else if (refD >= 6.0 || spdKmh > 1.5) { // obvious movement: react immediately
+    moving = true;
+    prevLat = lat; prevLon = lon; prevRefMs = millis();
+  }
+
+  /* Stationary smoothing exists to stop a parked marker wandering, but it must
+     never fight real travel. Engage only once genuinely still, blend gently, and
+     abandon it the moment the raw fix walks away from the held position. */
+  if (F_STATLOCK && haveFix && !moving) {
+    if (wasMoving) stillSince = millis();
+    if (millis() - stillSince > 8000 && distMeters(fixLat, fixLon, lat, lon) < 8.0) {
+      lat = fixLat * 0.7 + lat * 0.3;
+      lon = fixLon * 0.7 + lon * 0.3;
+    }
+  } else {
+    stillSince = millis();
+  }
   /* optional Kalman: measurement noise scales with HDOP, process noise with motion */
   if (F_KALMAN) {
     if (!haveFix) { kfLat = lat; kfLon = lon; kfP = 100; }
@@ -385,6 +425,13 @@ void pollGnss() {
 
 // ---------------- MQTT ----------------
 bool mqttConnect() {
+  // Without a readable SIM the whole sequence below just burns forty seconds and
+  // fails, and repeating that starves everything else in the loop. Check first.
+  if (!sendAT("AT+CPIN?", "READY", 3000)) {
+    static uint32_t lastMoan = 0;
+    if (millis() - lastMoan > 60000) { lastMoan = millis(); say("!! SIM not readable — reseat it and power-cycle the modem"); }
+    mqttUp = false; return false;
+  }
   // Clean slate: MQTT state persists on the modem across ESP32 resets, so a
   // stale acquired/connected client (error 19) must be torn down first.
   sendAT("AT+CMQTTSTART", nullptr, 8000);       // ok whether or not already started
@@ -497,7 +544,7 @@ void reportPosition() {
 // Join Wi-Fi and open the OTA port. Bench convenience only: if the network is
 // not reachable the tracker carries on over LTE exactly as before.
 void wifiOtaBegin() {
-  otaReady = false;
+  otaReady = false; httpReady = false;
   if (!F_WIFI) { WiFi.mode(WIFI_OFF); return; }
   WiFi.mode(WIFI_STA);
   // Keep the radio's power saving on. Holding it awake costs enough current to
@@ -535,6 +582,33 @@ void wifiOtaBegin() {
   });
   ArduinoOTA.begin();
   otaReady = true;
+
+  // Diagnostics that do not depend on the cellular link working.
+  http.on("/status", []() {
+    String j = String("{\"boot\":") + bootCount +
+               ",\"up_s\":" + (millis() / 1000) +
+               ",\"vbat\":" + String(vbat, 2) +
+               ",\"mqtt\":" + (mqttUp ? 1 : 0) +
+               ",\"fix\":" + (haveFix ? 1 : 0) +
+               ",\"sat\":" + (fixSats.length() ? fixSats : "0") +
+               ",\"hdop\":" + (fixHdop.length() ? fixHdop : "0") +
+               ",\"mov\":" + (moving ? 1 : 0) +
+               ",\"rej\":" + rejCount +
+               ",\"queued\":" + qCount +
+               ",\"lat\":" + String(fixLat, 6) + ",\"lon\":" + String(fixLon, 6) + "}";
+    http.send(200, "application/json", j);
+  });
+  // Raw modem access, gated on the same secret as OTA:  /at?k=<pass>&c=AT+CSQ
+  http.on("/at", []() {
+    if (http.arg("k") != OTA_PASSWORD) { http.send(403, "text/plain", "no"); return; }
+    if (modemDepth) { http.send(503, "text/plain", "modem busy, retry"); return; }
+    String c = http.arg("c");
+    if (!c.length()) { http.send(400, "text/plain", "need ?c=AT+..."); return; }
+    http.send(200, "text/plain", atReply(c.c_str(), 8000));
+  });
+  http.begin();
+  httpReady = true;
+  say("[http] status page up on port 80");
 }
 
 void readVbat() {
@@ -710,6 +784,7 @@ void setup() {
 void loop() {
   if (otaReady) ArduinoOTA.handle();
   if (otaBusy) return;                       // flashing owns the CPU
+  if (httpReady) http.handleClient();
 
   checkUsbCommand();
   checkDownlink();

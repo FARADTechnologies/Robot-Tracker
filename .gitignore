@@ -33,3 +33,4 @@ dist/
 Thumbs.db
 Desktop.ini
 .DS_Store
+web/seed_track.js

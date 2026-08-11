@@ -14,6 +14,33 @@ The modem's ~2 A LTE transmit bursts must **not** flow through the ESP32 board �
 split the rail at the buck output and run separate pairs to each board. Measured
 5.06 V at the common point under load.
 
+### Protection board
+
+The 4S board (marked `4S 40A`, `YS-Z1053`) carries two groups of pads that are
+easy to confuse:
+
+| Pads | Purpose |
+| --- | --- |
+| `0V` `4.2V` `8.4V` `12.6V` `16.8V` | balance and sense taps, one per cell junction |
+| `J1` (+) `J2` (−) | the output port |
+
+There is no separate charge terminal, so charge and discharge share `J1`/`J2`.
+Both the buck converter and the charging socket hang off those two pads.
+
+The taps double as the pack connection — `16.8V` is the pack positive and `0V`
+the negative, so there is no extra `B+` wire. Verify them with a meter before
+trusting the pack: each adjacent pair should read one cell, and the spread
+between cells should stay under 0.1 V. Measured 2026-08-11 with the tracker
+running: 3.66 / 3.66 / 3.64 / 3.72 V, pack 14.57 V, cells within 0.08 V.
+
+That same measurement showed **14.14 V at `J1`/`J2` against 14.57 V at the pack**
+— a 0.4 V loss through the board at roughly 100 mA, which implies a poor joint
+rather than the MOSFETs. Worth reflowing when the 5 V wiring is soldered.
+
+A protection board is not a charger. It cuts off on overcharge, over-discharge
+and overcurrent, but it produces no charging profile of its own — the source
+still has to supply a proper 16.8 V constant-current/constant-voltage curve.
+
 A bulk capacitor (≈1000 µF) across the 5 V rail near the modem is recommended.
 Without it, LTE bursts can dip the rail; if the ESP32 reboots unexpectedly the
 firmware prints the reset reason at boot, so look for `BROWNOUT` there.
